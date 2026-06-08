@@ -2067,6 +2067,101 @@ button {
   font-size: 12px;
 }
 
+.prevent-sleep-console {
+  display: grid;
+  gap: 12px;
+}
+
+.prevent-sleep-console__readout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--card-accent, #a7d77b) 32%, var(--line));
+  border-radius: var(--radius-sm);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--card-accent, #a7d77b) 16%, transparent),
+      rgb(255 255 255 / 0.03)
+    ),
+    rgb(2 12 18 / 0.32);
+}
+
+.prevent-sleep-console__readout span {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.prevent-sleep-console__readout strong {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.prevent-sleep-presets {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.prevent-sleep-preset {
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.045);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.prevent-sleep-preset[data-selected="true"] {
+  border-color: color-mix(in srgb, var(--card-accent, #a7d77b) 70%, white 12%);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--card-accent, #a7d77b) 38%, transparent),
+      rgb(255 255 255 / 0.08)
+    );
+  color: var(--text);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--card-accent, #a7d77b) 24%, transparent);
+}
+
+.prevent-sleep-route {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.prevent-sleep-route i {
+  flex: 1;
+  height: 1px;
+  min-width: 14px;
+  background: linear-gradient(90deg, transparent, var(--line), transparent);
+}
+
+.prevent-sleep-error {
+  position: absolute;
+  right: 18px;
+  bottom: 58px;
+  max-width: 180px;
+  margin: 0;
+  color: #ffd2c8;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-align: right;
+  text-shadow: 0 0 14px rgb(255 94 74 / 0.38);
+  z-index: 2;
+}
+
 .card-switch {
   position: relative;
   width: 100%;

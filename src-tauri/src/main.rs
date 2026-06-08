@@ -1,5 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod prevent_sleep;
+
+use prevent_sleep::{PreventSleepManager, PreventSleepRequest, PreventSleepStatus};
 use serde::{Deserialize, Serialize};
 use std::{
   fs,
@@ -67,6 +70,11 @@ impl Default for AppState {
 fn main() {
   tauri::Builder::default()
     .manage(AppState::default())
+    .manage(PreventSleepManager::default())
+    .invoke_handler(tauri::generate_handler![
+      prevent_sleep_set_enabled,
+      prevent_sleep_status,
+    ])
     .setup(|app| {
       let tray_menu = build_tray_menu(app.handle())?;
       let tray_icon = app
@@ -111,6 +119,8 @@ fn main() {
         let state = app.state::<AppState>();
         if !state.allow_exit.load(Ordering::SeqCst) {
           api.prevent_exit();
+        } else {
+          app.state::<PreventSleepManager>().stop();
         }
       }
     });
@@ -315,8 +325,24 @@ fn window_state_path<R: tauri::Runtime>(app: &AppHandle<R>) -> tauri::Result<Pat
 }
 
 fn request_exit<R: tauri::Runtime>(app: &AppHandle<R>) {
+  app.state::<PreventSleepManager>().stop();
   app.state::<AppState>()
     .allow_exit
     .store(true, Ordering::SeqCst);
   app.exit(0);
+}
+
+#[tauri::command]
+fn prevent_sleep_set_enabled(
+  manager: tauri::State<'_, PreventSleepManager>,
+  request: PreventSleepRequest,
+) -> Result<PreventSleepStatus, String> {
+  manager.set_enabled(request)
+}
+
+#[tauri::command]
+fn prevent_sleep_status(
+  manager: tauri::State<'_, PreventSleepManager>,
+) -> PreventSleepStatus {
+  manager.status()
 }

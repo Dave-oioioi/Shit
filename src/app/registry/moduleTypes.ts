@@ -23,9 +23,11 @@ export type ModuleCardProps<TState = Record<string, unknown>> = {
   moduleId: ModuleId;
   manifest: ModuleManifest;
   state: TState;
+  settings: Record<string, unknown>;
   isExpanded: boolean;
   isActive: boolean;
   settingsContent: ReactNode;
+  onPatchState: (partialState: Partial<TState>) => void;
   onToggleActive: () => void;
   onToggleExpand: () => void;
 };

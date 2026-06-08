@@ -39,6 +39,7 @@ export function ModuleCardHost({ moduleDefinition }: ModuleCardHostProps) {
       moduleId={moduleDefinition.manifest.id}
       manifest={moduleDefinition.manifest}
       state={state}
+      settings={settings}
       isExpanded={expandedModuleId === moduleDefinition.manifest.id}
       isActive={Boolean((state as Record<string, unknown>).enabled)}
       settingsContent={
@@ -49,6 +50,7 @@ export function ModuleCardHost({ moduleDefinition }: ModuleCardHostProps) {
           onChange={updateSettings}
         />
       }
+      onPatchState={patchState}
       onToggleActive={() =>
         patchState({
           enabled: !Boolean((state as Record<string, unknown>).enabled),
