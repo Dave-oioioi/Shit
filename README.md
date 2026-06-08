@@ -1,94 +1,225 @@
-# SHIT
+# Modular Shell
 
-![GitHub 最后提交](https://img.shields.io/github/last-commit/Dave-oioioi/SHIT)
-![GitHub 仓库大小](https://img.shields.io/github/repo-size/Dave-oioioi/SHIT)
+`Modular Shell` 是一个基于 `Tauri + React + TypeScript` 规划的插件化桌面 App 壳。
 
-SHIT 是当前项目的基础仓库。现在它已经完成 Git 初始化、连接 GitHub，并补上了最基础的项目说明，适合作为后续开发、整理结构和持续迭代的起点。
+当前阶段的目标不是先实现“电脑管家功能”，而是先把一个稳定的 `Plugin-Based Lego Dashboard Shell` 搭好，让后续新增功能遵守唯一扩展路径：
 
-## 项目简介
+```text
+创建模块 -> 注册模块 -> 自动渲染
+```
 
-这个仓库目前还处在项目起步阶段，重点不是展示现成功能，而是先把一个干净、可持续扩展的基础盘搭起来。当前 README 的结构参考了 [`nextlevelbuilder/ui-ux-pro-max-skill`](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) 的组织方式：先讲清楚项目是什么，再给出状态、结构、使用方式和下一步计划。
+这意味着后续新增功能时：
+- 不修改 `App Shell` 主逻辑
+- 不修改首页页面结构
+- 不手写新的 dashboard 渲染分支
+- 只新增一个模块目录并暴露标准 contract
+
+目前已经内置两个 UI 壳模块：
+- `auto-mixing`
+- `prevent-sleep`
 
 ## 当前状态
 
-- 已初始化 Git 仓库
-- 已创建并连接 GitHub 远程仓库
-- 默认分支为 `main`
-- 已补齐基础 `README.md`
-- 已补齐通用 `.gitignore`
+- 已完成 `Vite + React + TypeScript` 前端壳
+- 已完成 `Zustand` 状态层
+- 已完成基于 `import.meta.glob` 的模块自动发现
+- 已完成两张模块卡片和统一右侧设置抽屉
+- 已完成基础测试与生产构建
+- 已预留 `src-tauri/` 宿主结构
 
-## 当前包含内容
+注意：
+- 当前机器未安装 `Rust / Cargo`
+- 所以前端壳可运行、可构建
+- 但本地还不能直接启动 Tauri 原生窗口
 
-- 一个已经可用的 GitHub 仓库起点
-- 一份中文项目说明文档
-- 一份适合多技术栈的忽略规则
-- 一个可继续演进为正式项目的最小骨架
+## 技术栈
+
+- `React 18`
+- `TypeScript`
+- `Vite`
+- `Zustand`
+- `Vitest`
+- `Tauri 2` 占位宿主
 
 ## 快速开始
 
-```bash
-git clone https://github.com/Dave-oioioi/SHIT.git
-cd SHIT
-```
-
-如果你接下来要正式开发，可以从添加源码目录、包管理配置和开发命令开始。
-
-## 使用说明
-
-当前仓库还不是一个可直接运行的应用，而是一个已经整理好的项目起点。
-
-常见的后续操作如下：
+### 1. 安装依赖
 
 ```bash
-git status
-git add .
-git commit -m "feat: add initial project files"
-git push
+npm install
 ```
 
-## 项目结构
+### 2. 启动前端开发环境
 
-当前结构：
+```bash
+npm run dev
+```
+
+### 3. 运行测试
+
+```bash
+npm test
+```
+
+### 4. 构建前端产物
+
+```bash
+npm run build
+```
+
+## 目录结构
 
 ```text
-SHIT/
-|-- .gitignore
-`-- README.md
+src/
+  app/
+    shell/
+      AppShell.tsx
+      DashboardPage.tsx
+      ModuleCardHost.tsx
+      ModuleSettingsDrawer.tsx
+    registry/
+      moduleTypes.ts
+      validateModule.ts
+      loadModuleRegistry.ts
+    layout/
+      gridConfig.ts
+      layoutEngine.ts
+    state/
+      registryStore.ts
+      layoutStore.ts
+      moduleStateStore.ts
+      moduleSettingsStore.ts
+    hooks/
+      useRegisteredModules.ts
+      useModuleState.ts
+      useModuleSettings.ts
+      useOpenModuleSettings.ts
+      useToggleModuleEnabled.ts
+    ui/
+      CardFrame.tsx
+      SettingsSection.tsx
+  modules/
+    auto-mixing/
+      module.ts
+      AutoMixingCard.tsx
+      AutoMixingSettings.tsx
+      defaults.ts
+    prevent-sleep/
+      module.ts
+      PreventSleepCard.tsx
+      PreventSleepSettings.tsx
+      defaults.ts
+src-tauri/
+  src/
+    main.rs
 ```
 
-后续一个比较常见的扩展方向可能是：
+## 核心原则
+
+### 1. Shell 只做壳，不做业务判断
+
+Shell 只负责：
+- 发现模块
+- 校验模块 contract
+- 注入统一上下文
+- 自动渲染卡片和设置抽屉
+
+Shell 不负责：
+- 写死某个模块的 dashboard 逻辑
+- 针对某个模块写条件分支
+- 单独维护某个模块的路由
+
+### 2. 模块是第一等公民
+
+每个模块必须自带：
+- `manifest`
+- `CardComponent`
+- `SettingsComponent`
+- `defaultState`
+- `defaultSettings`
+
+### 3. Registry 驱动一切
+
+Dashboard、模块排序、设置抽屉、模块显隐，全部来自 registry。
+
+## 如何新增一个模块
+
+后续新增模块时，只走这一条路径：
+
+### 1. 新建模块目录
 
 ```text
-SHIT/
-|-- src/
-|-- docs/
-|-- tests/
-|-- .gitignore
-`-- README.md
+src/modules/your-module/
 ```
 
-## 后续建议
+### 2. 添加 4 个文件
 
-1. 添加真实的项目源码或脚手架
-2. 明确项目所使用的技术栈
-3. 增加依赖管理和开发命令
-4. 补充测试、CI 和发布流程
-5. 在项目方向稳定后继续细化 README
+```text
+module.ts
+YourModuleCard.tsx
+YourModuleSettings.tsx
+defaults.ts
+```
 
-## 协作约定
+### 3. 在 `module.ts` 导出标准定义
 
-如果这个仓库后续会进入多人协作，建议保持下面这些习惯：
+示意：
 
-- 提交信息尽量清楚
-- 每次改动尽量聚焦一个主题
-- 重要决策尽量留文档记录
-- 安装方式、运行方式有变化时同步更新 README
+```ts
+import type { ModuleDefinition } from "@/app/registry/moduleTypes";
 
-## 路线图
+const moduleDefinition: ModuleDefinition = {
+  manifest: {
+    id: "your-module",
+    name: "your-module",
+    version: "0.1.0",
+    title: "Your Module",
+    description: "Module description",
+    themeColor: "#66ccff",
+    icon: "box",
+    defaultSize: "2x1",
+    minSize: "2x1",
+    order: 3,
+    enabledByDefault: true,
+    hasSettings: true,
+  },
+  CardComponent: YourModuleCard,
+  SettingsComponent: YourModuleSettings,
+  defaultState,
+  defaultSettings,
+};
 
-- [x] 初始化仓库
-- [x] 创建 GitHub 仓库
-- [x] 补齐基础说明文件
-- [ ] 添加项目源码
-- [ ] 明确技术栈与开发流程
-- [ ] 增加测试与 CI
+export default moduleDefinition;
+```
+
+### 4. 不需要改任何 Shell 文件
+
+你不需要修改：
+- `src/app/shell/AppShell.tsx`
+- `src/app/shell/DashboardPage.tsx`
+- `src/app/shell/ModuleSettingsDrawer.tsx`
+- `src/app/registry/loadModuleRegistry.ts`
+
+因为 registry 会自动发现：
+
+```ts
+import.meta.glob("/src/modules/*/module.ts", { eager: true })
+```
+
+## 已实现验证
+
+当前测试已覆盖：
+- 自动发现有效模块
+- 非法模块被 registry 跳过但不会让应用崩掉
+- 首页自动渲染 `auto-mixing` 和 `prevent-sleep`
+- 点击卡片设置按钮可以打开统一抽屉
+
+## 下一步建议
+
+接下来最合理的推进顺序是：
+
+1. 接入 Rust toolchain，让 `src-tauri` 真正可运行
+2. 抽象 `Host API`，为模块暴露系统能力边界
+3. 继续新增第 3 个示例模块，验证扩展路径
+4. 为模块设置持久化补更多测试
+5. 开始实现 `auto-mixing` 和 `prevent-sleep` 的真实系统能力

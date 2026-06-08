@@ -1,0 +1,21 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Modular Shell",
+  "version": "0.1.0",
+  "identifier": "com.dave.modularshell",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Modular Shell",
+        "width": 1440,
+        "height": 960
+      }
+    ]
+  }
+}
