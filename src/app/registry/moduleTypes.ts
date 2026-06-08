@@ -48,6 +48,14 @@ export type ModuleDefinition<
   defaultSettings: TSettings;
 };
 
+export type RegisteredModuleDefinition = {
+  manifest: ModuleManifest;
+  CardComponent: unknown;
+  SettingsComponent: unknown;
+  defaultState: Record<string, unknown>;
+  defaultSettings: Record<string, unknown>;
+};
+
 export type ValidationResult = {
   valid: boolean;
   errors: string[];

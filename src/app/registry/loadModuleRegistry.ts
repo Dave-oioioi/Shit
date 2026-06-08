@@ -1,19 +1,19 @@
 import type {
-  ModuleDefinition,
   ModuleId,
+  RegisteredModuleDefinition,
   ValidationResult,
 } from "@/app/registry/moduleTypes";
 import { validateModule } from "@/app/registry/validateModule";
 
 type ModuleFile = {
-  default?: ModuleDefinition<any, any>;
-  moduleDefinition?: ModuleDefinition<any, any>;
+  default?: unknown;
+  moduleDefinition?: unknown;
 };
 
 export type RegistryDiagnostics = Record<ModuleId | string, ValidationResult>;
 
 export type RegistryLoadResult = {
-  modules: ModuleDefinition[];
+  modules: RegisteredModuleDefinition[];
   diagnostics: RegistryDiagnostics;
 };
 
@@ -22,13 +22,14 @@ export function createLoadResult(rawFiles: Record<string, ModuleFile>): Registry
   const modules = Object.values(rawFiles)
     .map((file) => file.default ?? file.moduleDefinition)
     .filter(
-      (candidate): candidate is ModuleDefinition<any, any> => candidate !== undefined,
+      (candidate): candidate is unknown => candidate !== undefined,
     )
     .flatMap((candidate) => {
       const validation = validateModule(candidate);
-      const key = candidate.manifest?.id ?? "unknown";
+      const moduleDefinition = candidate as Partial<RegisteredModuleDefinition>;
+      const key = moduleDefinition.manifest?.id ?? "unknown";
       diagnostics[key] = validation;
-      return validation.valid ? [candidate] : [];
+      return validation.valid ? [moduleDefinition as RegisteredModuleDefinition] : [];
     })
     .sort((left, right) => left.manifest.order - right.manifest.order);
 

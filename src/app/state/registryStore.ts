@@ -1,9 +1,13 @@
 import { create } from "zustand";
 import { loadModuleRegistry } from "@/app/registry/loadModuleRegistry";
-import type { ModuleDefinition, ModuleId, ValidationResult } from "@/app/registry/moduleTypes";
+import type {
+  ModuleId,
+  RegisteredModuleDefinition,
+  ValidationResult,
+} from "@/app/registry/moduleTypes";
 
 type RegistryStore = {
-  modules: ModuleDefinition[];
+  modules: RegisteredModuleDefinition[];
   enabledModuleIds: ModuleId[];
   diagnostics: Record<string, ValidationResult>;
   initialize: () => void;

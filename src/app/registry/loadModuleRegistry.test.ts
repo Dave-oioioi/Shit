@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createLoadResult } from "@/app/registry/loadModuleRegistry";
 import validModule from "@/modules/auto-mixing/module";
 import preventSleepModule from "@/modules/prevent-sleep/module";
-import type { ModuleDefinition } from "@/app/registry/moduleTypes";
+import type { ModuleDefinition, RegisteredModuleDefinition } from "@/app/registry/moduleTypes";
 
 describe("createLoadResult", () => {
   it("keeps valid modules and reports invalid ones without crashing", () => {
@@ -20,7 +20,7 @@ describe("createLoadResult", () => {
             defaultSize: "9x9",
             minSize: "1x1",
           },
-        } as any,
+        } as unknown as RegisteredModuleDefinition,
       },
     });
 

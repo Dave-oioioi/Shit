@@ -1,5 +1,5 @@
 import { DASHBOARD_COLUMNS, CARD_SPAN_MAP } from "@/app/layout/gridConfig";
-import type { ModuleDefinition, ModuleId } from "@/app/registry/moduleTypes";
+import type { ModuleId, RegisteredModuleDefinition } from "@/app/registry/moduleTypes";
 
 export type LayoutItem = {
   moduleId: ModuleId;
@@ -8,7 +8,7 @@ export type LayoutItem = {
 };
 
 export function buildDashboardLayout(
-  modules: ModuleDefinition[],
+  modules: RegisteredModuleDefinition[],
   order: ModuleId[],
 ): LayoutItem[] {
   const sorted = [...modules].sort((left, right) => {

@@ -12,18 +12,28 @@
   --muted: #9baec0;
   --muted-strong: #bed0df;
   --success: #8ed6b1;
+  --shell-material:
+    radial-gradient(circle at 88% 8%, rgba(95, 152, 205, 0.105), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)),
+    linear-gradient(160deg, rgba(13, 23, 35, 0.985), rgba(7, 15, 24, 0.99));
+  --shell-window-fill: transparent;
+  --shell-chrome-bg: var(--shell-material);
+  /* Radius scale: shell, panel, card, control, micro. */
+  --radius-shell: 8px;
+  --radius-panel: 14px;
+  --radius-card: 12px;
+  --radius-control: 9px;
+  --radius-micro: 6px;
+  --shell-radius: var(--radius-shell);
   --shadow-lg: 0 26px 60px rgba(0, 0, 0, 0.36);
   --shadow-md: 0 14px 32px rgba(0, 0, 0, 0.22);
-  --radius-xl: 24px;
-  --radius-lg: 18px;
-  --radius-md: 14px;
-  --radius-sm: 10px;
+  --radius-xl: var(--radius-panel);
+  --radius-lg: var(--radius-card);
+  --radius-md: var(--radius-control);
+  --radius-sm: var(--radius-micro);
   font-family: "Segoe UI Variable Display", "Aptos", "Trebuchet MS", "PingFang SC",
     "Microsoft YaHei", sans-serif;
-  background:
-    radial-gradient(circle at top left, rgba(103, 175, 223, 0.12), transparent 28%),
-    radial-gradient(circle at right 10%, rgba(150, 203, 172, 0.08), transparent 22%),
-    linear-gradient(160deg, #061019 0%, #09121d 45%, #0c1622 100%);
+  background: transparent;
   color: var(--text);
 }
 
@@ -36,27 +46,20 @@ body,
 #root {
   min-height: 100%;
   margin: 0;
+  background: transparent;
 }
 
 body {
   min-height: 100vh;
-  display: grid;
-  place-items: center;
+  display: block;
   overflow: hidden;
   scrollbar-width: none;
   -ms-overflow-style: none;
+  background: transparent;
 }
 
 body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background-image: linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-  background-size: 28px 28px;
-  mask-image: radial-gradient(circle at center, black, transparent 82%);
-  opacity: 0.22;
+  display: none;
 }
 
 button,
@@ -72,37 +75,77 @@ button {
 
 .shell {
   position: relative;
+  isolation: isolate;
   width: 455px;
   height: 660px;
+  overflow: visible;
+  background: transparent;
+  filter:
+    drop-shadow(0 30px 50px rgba(0, 0, 0, 0.3))
+    drop-shadow(0 12px 22px rgba(0, 0, 0, 0.16));
+  opacity: 0;
+  transform: translate3d(0, 20px, 0) scale(0.986);
+  transform-origin: bottom right;
+  transition:
+    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 220ms ease;
+}
+
+.shell--visible {
+  opacity: 1;
+  transform: translate3d(0, 0, 0) scale(1);
+}
+
+.shell__surface {
+  position: relative;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
-  border: 1px solid rgba(196, 220, 240, 0.14);
-  border-radius: 22px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0)),
-    linear-gradient(160deg, rgba(16, 27, 40, 0.98), rgba(9, 17, 26, 0.98));
-  box-shadow: 0 40px 120px rgba(0, 0, 0, 0.42);
+  border: 0;
+  border-radius: var(--shell-radius);
+  background: var(--shell-chrome-bg);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.032),
+    inset 0 -1px 0 rgba(181, 214, 231, 0.035);
+  contain: paint;
 }
 
-.shell::before {
+.shell__surface::after {
   content: "";
   position: absolute;
-  inset: 1px;
-  border-radius: 21px;
-  pointer-events: none;
-  border: 1px solid rgba(255, 255, 255, 0.04);
-}
-
-.shell::after {
-  content: "";
-  position: absolute;
-  top: -10%;
-  right: -20%;
-  width: 240px;
-  height: 240px;
+  top: -14%;
+  right: -28%;
+  width: 260px;
+  height: 260px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(111, 170, 219, 0.18), transparent 70%);
-  filter: blur(18px);
+  background: radial-gradient(circle, rgba(111, 170, 219, 0.11), transparent 72%);
+  filter: blur(22px);
   pointer-events: none;
+}
+
+.shell__drag-cap {
+  position: absolute;
+  top: 0;
+  left: 58px;
+  right: 0;
+  z-index: 4;
+  height: 18px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  pointer-events: none;
+}
+
+.shell__drag-notch {
+  width: 104px;
+  height: 18px;
+  margin-top: 7px;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  opacity: 0;
+  pointer-events: auto;
 }
 
 .shell__frame {
@@ -113,6 +156,7 @@ button {
   width: 100%;
   height: 100%;
   min-height: 0;
+  overflow: hidden;
   transition: grid-template-columns 260ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -165,27 +209,44 @@ button {
   display: grid;
   place-items: center;
   width: 44px;
-  height: 40px;
-  border-radius: 16px;
+  height: 38px;
+  border-radius: var(--radius-lg);
 }
 
 .shell__brand-logo-shell {
+  position: relative;
   background: transparent;
   border: 0;
   box-shadow: none;
+  transition:
+    filter 180ms ease,
+    transform 180ms ease;
 }
 
-.shell__brand-logo-shell img {
-  width: 26px;
-  height: 26px;
+.shell__brand-logo-shell:hover,
+.shell__brand-logo-shell[data-active="true"] {
+  filter:
+    drop-shadow(0 0 8px rgba(238, 245, 251, 0.32))
+    drop-shadow(0 0 14px rgba(111, 170, 219, 0.18));
+}
+
+.shell__brand-logo-shell:hover {
+  transform: translateY(-1px);
+}
+
+.shell__brand-logo {
+  width: 28px;
+  height: 27px;
   object-fit: contain;
-  opacity: 0.94;
+  opacity: 0.95;
+  user-select: none;
+  pointer-events: none;
 }
 
 .shell__brand-mark {
   width: 36px;
   height: 36px;
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   border: 1px solid rgba(177, 205, 227, 0.16);
   background: rgba(255, 255, 255, 0.03);
   color: var(--muted-strong);
@@ -246,7 +307,7 @@ button {
   height: 38px;
   padding: 0 9px;
   border: 1px solid transparent;
-  border-radius: 13px;
+  border-radius: var(--radius-lg);
   color: rgba(233, 242, 251, 0.7);
   background: transparent;
   transition:
@@ -518,7 +579,7 @@ button {
   min-height: 42px;
   padding: 6px 2px;
   border: 1px solid rgba(142, 214, 177, 0.1);
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   background:
     radial-gradient(circle at 50% 12%, rgba(142, 214, 177, 0.08), transparent 58%),
     rgba(255, 255, 255, 0.018);
@@ -613,13 +674,16 @@ button {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.016), transparent 13%),
+    radial-gradient(circle at top right, rgba(124, 173, 212, 0.08), transparent 26%);
 }
 
 .shell__topbar {
   display: flex;
   justify-content: flex-start;
   gap: 12px;
-  padding: 16px 18px 8px 16px;
+  padding: 24px 18px 10px 16px;
 }
 
 .shell__topbar-copy {
@@ -647,6 +711,7 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-height: 34px;
 }
 
 .shell__topbar-status {
@@ -683,7 +748,7 @@ button {
   position: relative;
   min-height: 0;
   height: 100%;
-  padding: 6px 16px 18px 14px;
+  padding: 8px 16px 18px 14px;
   overflow: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -694,7 +759,7 @@ button {
   min-height: 100%;
   padding: 14px;
   border: 1px solid rgba(211, 224, 235, 0.14);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 32%),
     linear-gradient(160deg, rgba(18, 29, 40, 0.96), rgba(10, 19, 28, 0.98));
@@ -877,7 +942,7 @@ button {
   padding: 18px;
   overflow: hidden;
   border: 1px dashed rgba(214, 230, 240, 0.16);
-  border-radius: 20px;
+  border-radius: var(--radius-lg);
   background:
     radial-gradient(circle at 78% 24%, rgba(111, 170, 219, 0.11), transparent 30%),
     linear-gradient(155deg, rgba(26, 42, 58, 0.82), rgba(12, 22, 34, 0.9));
@@ -967,6 +1032,108 @@ button {
   letter-spacing: -0.02em;
 }
 
+.intro-card {
+  min-height: 212px;
+  border-style: solid;
+  background:
+    radial-gradient(circle at 78% 22%, rgba(142, 214, 177, 0.13), transparent 30%),
+    radial-gradient(circle at 18% 82%, rgba(111, 170, 219, 0.12), transparent 32%),
+    linear-gradient(155deg, rgba(25, 43, 58, 0.88), rgba(10, 19, 28, 0.94));
+}
+
+.vault-info-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  min-height: 218px;
+  padding: 20px;
+  overflow: hidden;
+  border: 1px solid rgba(214, 230, 240, 0.14);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.vault-info-card::after {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  width: 118px;
+  height: 1px;
+  content: "";
+  background: linear-gradient(90deg, transparent, rgba(142, 214, 177, 0.26));
+}
+
+.vault-info-card__mark {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(circle at 50% 42%, rgba(238, 245, 251, 0.13), transparent 56%),
+    rgba(255, 255, 255, 0.028);
+}
+
+.vault-info-card__mark img {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  opacity: 0.96;
+}
+
+.vault-info-card__content {
+  min-width: 0;
+}
+
+.vault-info-card__eyebrow {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.vault-info-card h3 {
+  margin: 0 0 16px;
+  color: var(--text);
+  font-size: 22px;
+  letter-spacing: -0.03em;
+}
+
+.vault-info-card__meta {
+  display: flex;
+  margin: 0;
+}
+
+.vault-info-card__meta div {
+  min-width: 0;
+  min-width: 104px;
+  padding: 8px 10px;
+  border: 1px solid rgba(214, 230, 240, 0.1);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.vault-info-card__meta dt {
+  margin: 0 0 5px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.vault-info-card__meta dd {
+  margin: 0;
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -978,7 +1145,7 @@ button {
 .drawer-card {
   position: relative;
   border: 1px solid rgba(214, 230, 240, 0.12);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent),
     rgba(255, 255, 255, 0.035);
@@ -1016,7 +1183,7 @@ button {
   min-height: 34px;
   padding: 0 12px;
   border: 1px solid rgba(214, 230, 240, 0.18);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: #f5f9fc;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent),
@@ -1053,7 +1220,7 @@ button {
   width: 28px;
   height: 28px;
   border: 1px solid rgba(142, 214, 177, 0.24);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: #ccefdc;
   background: rgba(142, 214, 177, 0.1);
 }
@@ -1098,7 +1265,7 @@ button {
 .drawer-card__meta {
   padding: 5px 8px;
   border: 1px solid rgba(214, 230, 240, 0.14);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: var(--muted-strong);
   background: rgba(255, 255, 255, 0.04);
   font-size: 11px;
@@ -1229,7 +1396,7 @@ button {
 .dashboard__bay {
   position: relative;
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: var(--radius-lg);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent),
     linear-gradient(180deg, rgba(15, 26, 39, 0.92), rgba(11, 20, 31, 0.96));
@@ -1334,7 +1501,7 @@ button {
   gap: 10px;
   padding: 11px 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.04);
 }
 
@@ -1359,7 +1526,7 @@ button {
   min-height: 184px;
   padding: 18px;
   border: 1px solid rgba(200, 223, 241, 0.1);
-  border-radius: 20px;
+  border-radius: var(--radius-lg);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent),
     linear-gradient(155deg, color-mix(in srgb, var(--card-accent) 18%, #152232), #0e1824 68%);
@@ -1377,7 +1544,7 @@ button {
   z-index: 0;
   content: "";
   border: 1px solid transparent;
-  border-radius: 19px;
+  border-radius: calc(var(--radius-lg) - 1px);
   background:
     linear-gradient(#0e1824, #0e1824) padding-box,
     linear-gradient(
@@ -1425,7 +1592,7 @@ button {
   position: absolute;
   inset: 2px;
   content: "";
-  border-radius: 18px;
+  border-radius: calc(var(--radius-lg) - 2px);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent),
     linear-gradient(155deg, color-mix(in srgb, var(--card-accent) 18%, #152232), #0e1824 68%);
@@ -1812,17 +1979,13 @@ button {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 40px;
   align-items: center;
-  gap: 7px;
+  gap: 10px;
   width: 100%;
-  padding: 6px;
-  border: 1px solid color-mix(in srgb, var(--card-accent) 13%, rgba(255, 255, 255, 0.08));
-  border-radius: 18px;
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--card-accent) 9%, transparent), transparent 62%),
-    rgba(1, 8, 14, 0.3);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    inset 0 -14px 28px rgba(0, 0, 0, 0.12);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .card-frame__expandable {
@@ -1859,7 +2022,7 @@ button {
 .settings-section {
   padding: 12px;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   background: var(--surface);
 }
 
@@ -1898,7 +2061,7 @@ button {
   min-width: 130px;
   padding: 7px 9px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   color: var(--text);
   background: rgba(255, 255, 255, 0.04);
   font-size: 12px;
@@ -1910,7 +2073,7 @@ button {
   min-width: 0;
   height: 40px;
   border: 0;
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   background: transparent;
   transition: transform 180ms ease;
 }
@@ -1924,7 +2087,7 @@ button {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent 42%),
     rgba(255, 255, 255, 0.045);
@@ -1940,13 +2103,13 @@ button {
   position: absolute;
   inset: 4px;
   content: "";
-  border-radius: 11px;
+  border-radius: var(--radius-sm);
   background:
     repeating-linear-gradient(
       90deg,
       rgba(255, 255, 255, 0.06) 0 1px,
       transparent 1px 9px
-    );
+  );
   opacity: 0.34;
 }
 
@@ -1957,7 +2120,7 @@ button {
   left: 5px;
   width: calc(50% - 6px);
   content: "";
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.16), transparent 44%),
     rgba(255, 255, 255, 0.08);
@@ -2052,12 +2215,14 @@ button {
 .card-frame__settings-button {
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 38px;
+  height: 40px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-md);
   color: color-mix(in srgb, var(--text) 70%, var(--card-accent));
-  background: transparent;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent),
+    rgba(255, 255, 255, 0.018);
   transition:
     transform 180ms ease,
     color 180ms ease,
@@ -2146,4 +2311,12 @@ body::-webkit-scrollbar-track,
 body::-webkit-scrollbar-thumb,
 .shell__main::-webkit-scrollbar-thumb {
   background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
 }

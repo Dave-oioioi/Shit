@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Settings2 } from "lucide-react";
 import { DashboardPage } from "@/app/shell/DashboardPage";
 import { ModuleCardHost } from "@/app/shell/ModuleCardHost";
@@ -6,8 +8,11 @@ import { ShellContent } from "@/app/shell/ShellContent";
 import { useRegisteredModules } from "@/app/hooks/useRegisteredModules";
 import { useModuleStateStore } from "@/app/state/moduleStateStore";
 import { useRegistryStore } from "@/app/state/registryStore";
+import shitLogoUrl from "../../../assets/icon-work/shit-symbol-extract-test.png";
+import packageInfo from "../../../package.json";
 
 type ViewId =
+  | "intro"
   | "home"
   | "toolset-01"
   | "toolset-02"
@@ -15,8 +20,14 @@ type ViewId =
   | "toolset-04"
   | "settings";
 
+type ShellNavigationPayload = {
+  view?: ViewId;
+};
+
+const WINDOW_REVEAL_EVENT = "shell:will-show";
+
 type RailItem = {
-  id: Exclude<ViewId, "home" | "settings">;
+  id: Exclude<ViewId, "intro" | "home" | "settings">;
   label: string;
   logo: "stall" | "poop" | "urinal" | "sink";
 };
@@ -45,6 +56,7 @@ const railItems: RailItem[] = [
 ];
 
 const viewStatusLabel: Record<ViewId, string> = {
+  intro: "Vault Ready",
   home: "Workspace Live",
   "toolset-01": "Toolset Live",
   "toolset-02": "Standby Slot",
@@ -58,9 +70,15 @@ type ToolsetViewProps = {
   placeholderTitle?: string;
 };
 
-function ToolsetPlaceholderCard({ title }: { title: string }) {
+function ToolsetPlaceholderCard({
+  title,
+  className,
+}: {
+  title: string;
+  className?: string;
+}) {
   return (
-    <article className="toolset-placeholder-card">
+    <article className={className ? `toolset-placeholder-card ${className}` : "toolset-placeholder-card"}>
       <div className="toolset-placeholder-card__mark" aria-hidden="true">
         <span />
         <span />
@@ -91,6 +109,28 @@ function ToolsetView({ moduleIds = [], placeholderTitle }: ToolsetViewProps) {
         ))}
         {placeholderTitle ? <ToolsetPlaceholderCard title={placeholderTitle} /> : null}
       </div>
+    </ShellContent>
+  );
+}
+
+function IntroView() {
+  return (
+    <ShellContent bare>
+      <article className="vault-info-card intro-card">
+        <div className="vault-info-card__mark" aria-hidden="true">
+          <img src={shitLogoUrl} alt="" draggable={false} />
+        </div>
+        <div className="vault-info-card__content">
+          <p className="vault-info-card__eyebrow">Shell Identity</p>
+          <h3>Shit Vault</h3>
+          <dl className="vault-info-card__meta" aria-label={"\u7248\u672c\u4fe1\u606f"}>
+            <div>
+              <dt>{"\u7248\u672c"}</dt>
+              <dd>v{packageInfo.version}</dd>
+            </div>
+          </dl>
+        </div>
+      </article>
     </ShellContent>
   );
 }
@@ -140,10 +180,57 @@ export function AppShell() {
   const modules = useRegisteredModules();
   const moduleStateById = useModuleStateStore((state) => state.stateById);
   const [activeView, setActiveView] = useState<ViewId>("home");
+  const [isWindowVisible, setIsWindowVisible] = useState(true);
 
   useEffect(() => {
     initialize();
   }, [initialize]);
+
+  useEffect(() => {
+    let removeListener: (() => void) | undefined;
+    let removeRevealListener: (() => void) | undefined;
+
+    void listen<ShellNavigationPayload>("shell:navigate", (event) => {
+      const nextView = event.payload?.view;
+      if (nextView) {
+        setActiveView(nextView);
+      }
+    }).then((unlisten) => {
+      removeListener = unlisten;
+    });
+
+    void listen(WINDOW_REVEAL_EVENT, () => {
+      setIsWindowVisible(false);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setIsWindowVisible(true);
+        });
+      });
+    }).then((unlisten) => {
+      removeRevealListener = unlisten;
+    });
+
+    return () => {
+      void removeListener?.();
+      void removeRevealListener?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      event.preventDefault();
+      void getCurrentWindow().hide();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
 
   const activeCardCount = useMemo(
     () =>
@@ -185,6 +272,12 @@ export function AppShell() {
           title: "\u8bbe\u7f6e",
           subtitle: "\u96c6\u4e2d\u7ba1\u7406\u5de5\u4f5c\u533a\u504f\u597d\u3001\u9996\u9875\u663e\u793a\u548c\u58f3\u5c42\u57fa\u7840\u9009\u9879\u3002",
         };
+      case "intro":
+        return {
+          kicker: "SHIT VAULT",
+          title: "Shit Vault",
+          subtitle: "\u54c1\u724c\u4e0e\u58f3\u5c42\u4fe1\u606f\u5165\u53e3\u3002",
+        };
       case "home":
       default:
         return {
@@ -223,6 +316,8 @@ export function AppShell() {
         );
       case "settings":
         return <AppSettingsView />;
+      case "intro":
+        return <IntroView />;
       case "home":
       default:
         return <DashboardPage />;
@@ -230,90 +325,95 @@ export function AppShell() {
   }, [activeView]);
 
   return (
-    <div className="shell">
-      <div className="shell__frame">
-        <aside className="shell__rail">
-          <button
-            type="button"
-            className="shell__brand-logo-shell"
-            data-active={activeView === "home"}
-            aria-label={"\u5de5\u5177\u7a7a\u95f4"}
-            title={"\u5de5\u5177\u7a7a\u95f4"}
-            onClick={() => setActiveView("home")}
-          >
-            <img src="/assets/icon-work/shit-symbol-extract-test.png" alt="" />
-          </button>
+    <div className={isWindowVisible ? "shell shell--visible" : "shell"}>
+      <div className="shell__surface">
+        <div className="shell__drag-cap">
+          <span className="shell__drag-notch" data-tauri-drag-region aria-hidden="true" />
+        </div>
+        <div className="shell__frame">
+          <aside className="shell__rail">
+            <button
+              type="button"
+              className="shell__brand-logo-shell"
+              data-active={activeView === "intro"}
+              aria-label="Shit Vault"
+              title="Shit Vault"
+              onClick={() => setActiveView("intro")}
+            >
+              <img className="shell__brand-logo" src={shitLogoUrl} alt="" draggable={false} />
+            </button>
 
-          <div className="shell__rail-divider" aria-hidden="true" />
+            <div className="shell__rail-divider" aria-hidden="true" />
 
-          <div className="shell__rail-stack">
-            {railItems.map(({ id, label, logo }) => (
-              <button
-                key={id}
-                type="button"
-                className={
-                  activeView === id
-                    ? "shell__rail-button shell__rail-button--active"
-                    : "shell__rail-button"
-                }
-                aria-label={label}
-                title={label}
-                onClick={() => setActiveView(id)}
-              >
-                <span
-                  className={`shell__toolset-logo shell__toolset-logo--${logo}`}
-                  aria-hidden="true"
+            <div className="shell__rail-stack">
+              {railItems.map(({ id, label, logo }) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={
+                    activeView === id
+                      ? "shell__rail-button shell__rail-button--active"
+                      : "shell__rail-button"
+                  }
+                  aria-label={label}
+                  title={label}
+                  onClick={() => setActiveView(id)}
                 >
-                  <span />
-                  <span />
-                  <span />
-                </span>
-                <span className="shell__rail-label">{label}</span>
-              </button>
-            ))}
-          </div>
+                  <span
+                    className={`shell__toolset-logo shell__toolset-logo--${logo}`}
+                    aria-hidden="true"
+                  >
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                  <span className="shell__rail-label">{label}</span>
+                </button>
+              ))}
+            </div>
 
-          <div className="shell__rail-spacer" />
+            <div className="shell__rail-spacer" />
 
-          <div className="shell__rail-caption" data-live={activeCardCount > 0}>
-            <span className="shell__rail-caption-kicker">Ready</span>
-            <strong>{activeCardCount}</strong>
-            <span className="shell__rail-caption-label">Active Cards</span>
-          </div>
+            <div className="shell__rail-caption" data-live={activeCardCount > 0}>
+              <span className="shell__rail-caption-kicker">Ready</span>
+              <strong>{activeCardCount}</strong>
+              <span className="shell__rail-caption-label">Active Cards</span>
+            </div>
 
-          <div className="shell__rail-divider shell__rail-divider--bottom" aria-hidden="true" />
+            <div className="shell__rail-divider shell__rail-divider--bottom" aria-hidden="true" />
 
-          <button
-            type="button"
-            className={
-              activeView === "settings"
-                ? "shell__rail-button shell__rail-button--active shell__rail-button--settings"
-                : "shell__rail-button shell__rail-button--settings"
-            }
-            aria-label={"\u8bbe\u7f6e"}
-            title={"\u8bbe\u7f6e"}
-            onClick={() => setActiveView("settings")}
-          >
-            <Settings2 size={18} />
-            <span className="shell__rail-label">{"\u8bbe\u7f6e"}</span>
-          </button>
-        </aside>
+            <button
+              type="button"
+              className={
+                activeView === "settings"
+                  ? "shell__rail-button shell__rail-button--active shell__rail-button--settings"
+                  : "shell__rail-button shell__rail-button--settings"
+              }
+              aria-label={"\u8bbe\u7f6e"}
+              title={"\u8bbe\u7f6e"}
+              onClick={() => setActiveView("settings")}
+            >
+              <Settings2 size={18} />
+              <span className="shell__rail-label">{"\u8bbe\u7f6e"}</span>
+            </button>
+          </aside>
 
-        <div className="shell__content">
-          <header className="shell__topbar">
-            <div className="shell__topbar-copy">
-              <p className="shell__topbar-kicker">{topbar.kicker}</p>
-              <div className="shell__topbar-title-row">
-                <h1 className="shell__topbar-title">{topbar.title}</h1>
-                <div className="shell__topbar-status" aria-label={"\u7cfb\u7edf\u72b6\u6001"}>
-                  <span className="shell__status-dot" aria-hidden="true" />
-                  <strong>{viewStatusLabel[activeView]}</strong>
+          <div className="shell__content">
+            <header className="shell__topbar">
+              <div className="shell__topbar-copy">
+                <p className="shell__topbar-kicker">{topbar.kicker}</p>
+                <div className="shell__topbar-title-row">
+                  <h1 className="shell__topbar-title">{topbar.title}</h1>
+                  <div className="shell__topbar-status" aria-label={"\u7cfb\u7edf\u72b6\u6001"}>
+                    <span className="shell__status-dot" aria-hidden="true" />
+                    <strong>{viewStatusLabel[activeView]}</strong>
+                  </div>
                 </div>
               </div>
-            </div>
-          </header>
+            </header>
 
-          <main className="shell__main">{content}</main>
+            <main className="shell__main">{content}</main>
+          </div>
         </div>
       </div>
     </div>

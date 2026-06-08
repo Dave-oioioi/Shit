@@ -1,5 +1,10 @@
+import type { ComponentType } from "react";
 import { X } from "lucide-react";
-import type { ModuleDefinition } from "@/app/registry/moduleTypes";
+import type {
+  ModuleDefinition,
+  ModuleSettingsProps,
+  RegisteredModuleDefinition,
+} from "@/app/registry/moduleTypes";
 import { useModuleSettings } from "@/app/hooks/useModuleSettings";
 import { useToggleModuleEnabled } from "@/app/hooks/useToggleModuleEnabled";
 import { useLayoutStore } from "@/app/state/layoutStore";
@@ -20,7 +25,7 @@ export function ModuleSettingsDrawer() {
 }
 
 type ActiveModuleSettingsDrawerProps = {
-  moduleDefinition: ModuleDefinition;
+  moduleDefinition: RegisteredModuleDefinition;
 };
 
 function ActiveModuleSettingsDrawer({
@@ -29,11 +34,17 @@ function ActiveModuleSettingsDrawer({
   const closeSettingsDrawer = useLayoutStore((state) => state.closeSettingsDrawer);
   const isEnabled = useRegistryStore((state) => state.isEnabled);
   const toggleModuleEnabled = useToggleModuleEnabled();
+  const hostModuleDefinition = moduleDefinition as ModuleDefinition<
+    Record<string, unknown>,
+    Record<string, unknown>
+  >;
   const { settings, updateSettings } = useModuleSettings(
     moduleDefinition.manifest.id,
-    moduleDefinition,
+    hostModuleDefinition,
   );
-  const SettingsComponent = moduleDefinition.SettingsComponent;
+  const SettingsComponent = moduleDefinition.SettingsComponent as ComponentType<
+    ModuleSettingsProps<Record<string, unknown>>
+  >;
 
   return (
     <aside className="drawer">

@@ -1,25 +1,38 @@
-import type { ModuleDefinition } from "@/app/registry/moduleTypes";
+import type { ComponentType } from "react";
+import type {
+  ModuleCardProps,
+  ModuleDefinition,
+  ModuleSettingsProps,
+  RegisteredModuleDefinition,
+} from "@/app/registry/moduleTypes";
 import { useModuleSettings } from "@/app/hooks/useModuleSettings";
 import { useModuleState } from "@/app/hooks/useModuleState";
 import { useLayoutStore } from "@/app/state/layoutStore";
 
 type ModuleCardHostProps = {
-  moduleDefinition: ModuleDefinition;
+  moduleDefinition: RegisteredModuleDefinition;
 };
 
+type HostModuleDefinition = ModuleDefinition<Record<string, unknown>, Record<string, unknown>>;
+
 export function ModuleCardHost({ moduleDefinition }: ModuleCardHostProps) {
+  const hostModuleDefinition = moduleDefinition as HostModuleDefinition;
   const { state, patchState } = useModuleState(
     moduleDefinition.manifest.id,
-    moduleDefinition,
+    hostModuleDefinition,
   );
   const { settings, updateSettings } = useModuleSettings(
     moduleDefinition.manifest.id,
-    moduleDefinition,
+    hostModuleDefinition,
   );
   const expandedModuleId = useLayoutStore((store) => store.expandedModuleId);
   const toggleExpandedModule = useLayoutStore((store) => store.toggleExpandedModule);
-  const CardComponent = moduleDefinition.CardComponent;
-  const SettingsComponent = moduleDefinition.SettingsComponent;
+  const CardComponent = moduleDefinition.CardComponent as ComponentType<
+    ModuleCardProps<Record<string, unknown>>
+  >;
+  const SettingsComponent = moduleDefinition.SettingsComponent as ComponentType<
+    ModuleSettingsProps<Record<string, unknown>>
+  >;
 
   return (
     <CardComponent
