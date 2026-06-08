@@ -92,7 +92,11 @@ export function PreventSleepCard({
         onPatchStateRef.current({
           enabled: nextStatus.enabled,
           runtimeError: nextStatus.error,
-          status: nextStatus.enabled ? STATUS_RUNNING : STATUS_IDLE,
+          status: nextStatus.error
+            ? STATUS_START_FAILED
+            : nextStatus.enabled
+              ? STATUS_RUNNING
+              : STATUS_IDLE,
           lastPulseAt: nextStatus.lastPulseAt,
         });
       } catch {

@@ -399,7 +399,7 @@ export function AppShell() {
           </aside>
 
           <div className="shell__content">
-            <header className="shell__topbar">
+            <header className="shell__topbar" data-tauri-drag-region>
               <div className="shell__topbar-copy">
                 <p className="shell__topbar-kicker">{topbar.kicker}</p>
                 <div className="shell__topbar-title-row">

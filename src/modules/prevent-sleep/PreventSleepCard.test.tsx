@@ -186,4 +186,58 @@ describe("PreventSleepCard", () => {
       });
     });
   });
+
+  it("clears a stale runtime error after a successful disable", async () => {
+    const user = userEvent.setup();
+    invokeMock.mockResolvedValue({ enabled: false, lastPulseAt: null, error: null });
+    const { onPatchState } = renderCard({
+      isActive: true,
+      state: {
+        enabled: true,
+        status: "\u540e\u53f0\u4fdd\u6d3b\u4e2d",
+        lastActionAt: "2026-06-08T01:00:00.000Z",
+        lastPulseAt: "2026-06-08T01:02:00.000Z",
+        runtimeError: "temporary native error",
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "\u9632\u6b62\u4f11\u7720 \u5f00\u5173" }));
+
+    await waitFor(() => {
+      expect(onPatchState).toHaveBeenCalledWith({
+        enabled: false,
+        runtimeError: null,
+        status: "\u5f85\u547d",
+        lastActionAt: expect.any(String),
+        lastPulseAt: null,
+      });
+    });
+  });
+
+  it("shows a native error returned by status polling even while previously active", async () => {
+    invokeMock.mockResolvedValue({
+      enabled: false,
+      lastPulseAt: null,
+      error: "SetThreadExecutionState failed",
+    });
+    const { onPatchState } = renderCard({
+      isActive: true,
+      state: {
+        enabled: true,
+        status: "\u540e\u53f0\u4fdd\u6d3b\u4e2d",
+        lastActionAt: "2026-06-08T01:00:00.000Z",
+        lastPulseAt: null,
+        runtimeError: null,
+      },
+    });
+
+    await waitFor(() => {
+      expect(onPatchState).toHaveBeenCalledWith({
+        enabled: false,
+        runtimeError: "SetThreadExecutionState failed",
+        status: "\u542f\u52a8\u5931\u8d25",
+        lastPulseAt: null,
+      });
+    });
+  });
 });

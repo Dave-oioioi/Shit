@@ -107,4 +107,13 @@ describe("AppShell", () => {
 
     expect(await screen.findByRole("heading", { name: SETTINGS })).toBeInTheDocument();
   });
+
+  it("uses the whole topbar as a drag region", async () => {
+    render(<AppShell />);
+
+    expect(await screen.findByRole("heading", { name: AUTO_MIXING })).toBeInTheDocument();
+
+    const topbar = document.querySelector(".shell__topbar");
+    expect(topbar).toHaveAttribute("data-tauri-drag-region");
+  });
 });

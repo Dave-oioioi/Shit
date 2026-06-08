@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::{
-  mem::size_of,
   sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
@@ -9,22 +8,11 @@ use std::{
   time::{Duration, Instant},
 };
 use windows_sys::Win32::{
-  Foundation::{GetLastError, POINT},
-  Graphics::Gdi::{
-    GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
-  },
+  Foundation::GetLastError,
   System::{
     Power::{
       SetThreadExecutionState, ES_CONTINUOUS, ES_DISPLAY_REQUIRED, ES_SYSTEM_REQUIRED,
     },
-    SystemInformation::GetTickCount,
-  },
-  UI::{
-    Input::KeyboardAndMouse::{
-      GetLastInputInfo, SendInput, INPUT, INPUT_0, INPUT_MOUSE, LASTINPUTINFO,
-      MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEINPUT,
-    },
-    WindowsAndMessaging::{GetCursorPos, SetCursorPos},
   },
 };
 
@@ -32,10 +20,6 @@ const DEFAULT_IDLE_THRESHOLD_SECONDS: u64 = 150;
 const MIN_IDLE_THRESHOLD_SECONDS: u64 = 30;
 const MAX_IDLE_THRESHOLD_SECONDS: u64 = 600;
 const POLL_INTERVAL_MS: u64 = 1_000;
-const POST_PULSE_COOLDOWN_MS: u64 = 2_000;
-const SAFE_CORNER_INSET: i32 = 18;
-const MOVE_SETTLE_MS: u64 = 80;
-const CLICK_HOLD_MS: u64 = 45;
 
 #[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -95,20 +79,22 @@ impl PreventSleepManager {
   }
 
   pub fn status(&self) -> PreventSleepStatus {
+    let error = self
+      .runtime
+      .last_error
+      .lock()
+      .ok()
+      .and_then(|value| value.clone());
+
     PreventSleepStatus {
-      enabled: self.is_running(),
+      enabled: self.is_running() && error.is_none(),
       last_pulse_at: self
         .runtime
         .last_pulse_at
         .lock()
         .ok()
         .and_then(|value| value.clone()),
-      error: self
-        .runtime
-        .last_error
-        .lock()
-        .ok()
-        .and_then(|value| value.clone()),
+      error,
     }
   }
 
@@ -121,6 +107,7 @@ impl PreventSleepManager {
     }
 
     release_execution_state();
+    self.runtime.write_error(None);
     self.runtime.write_last_pulse_at(None);
   }
 
@@ -180,36 +167,18 @@ fn run_worker(
   idle_threshold_seconds: u64,
   runtime: Arc<PreventSleepRuntime>,
 ) {
-  let idle_threshold = Duration::from_secs(idle_threshold_seconds);
-  let mut next_allowed_pulse = Instant::now();
+  let refresh_interval = Duration::from_secs(idle_threshold_seconds.min(30));
 
   while !stop.load(Ordering::SeqCst) {
     if let Err(error) = apply_execution_state() {
       runtime.write_error(Some(error));
+      sleep_until_stop(&stop, Duration::from_secs(10));
+      continue;
     }
 
-    match idle_duration() {
-      Ok(idle_for) if idle_for >= idle_threshold && Instant::now() >= next_allowed_pulse => {
-        match pulse_mouse() {
-          Ok(()) => {
-            runtime.write_error(None);
-            runtime.write_last_pulse_at(Some(now_isoish()));
-            next_allowed_pulse =
-              Instant::now() + idle_threshold + Duration::from_millis(POST_PULSE_COOLDOWN_MS);
-          }
-          Err(error) => {
-            runtime.write_error(Some(error));
-            next_allowed_pulse = Instant::now() + Duration::from_secs(10);
-          }
-        }
-      }
-      Ok(_) => {}
-      Err(error) => {
-        runtime.write_error(Some(error));
-      }
-    }
-
-    sleep_until_stop(&stop, Duration::from_millis(POLL_INTERVAL_MS));
+    runtime.write_error(None);
+    runtime.write_last_pulse_at(Some(now_isoish()));
+    sleep_until_stop(&stop, refresh_interval.max(Duration::from_millis(POLL_INTERVAL_MS)));
   }
 
   release_execution_state();
@@ -240,109 +209,6 @@ fn release_execution_state() {
   }
 }
 
-fn idle_duration() -> Result<Duration, String> {
-  let mut info = LASTINPUTINFO {
-    cbSize: size_of::<LASTINPUTINFO>() as u32,
-    dwTime: 0,
-  };
-
-  let ok = unsafe { GetLastInputInfo(&mut info) };
-  if ok == 0 {
-    return Err(last_os_error("GetLastInputInfo failed"));
-  }
-
-  let now = unsafe { GetTickCount() };
-  let elapsed_ms = now.wrapping_sub(info.dwTime);
-  Ok(Duration::from_millis(u64::from(elapsed_ms)))
-}
-
-fn pulse_mouse() -> Result<(), String> {
-  let original = cursor_position()?;
-  let target = safe_left_bottom_point(original)?;
-
-  set_cursor_position(target)?;
-  thread::sleep(Duration::from_millis(MOVE_SETTLE_MS));
-  send_left_click()?;
-  thread::sleep(Duration::from_millis(CLICK_HOLD_MS));
-  set_cursor_position(original)?;
-
-  Ok(())
-}
-
-fn cursor_position() -> Result<POINT, String> {
-  let mut point = POINT { x: 0, y: 0 };
-  let ok = unsafe { GetCursorPos(&mut point) };
-
-  if ok == 0 {
-    Err(last_os_error("GetCursorPos failed"))
-  } else {
-    Ok(point)
-  }
-}
-
-fn safe_left_bottom_point(anchor: POINT) -> Result<POINT, String> {
-  let monitor = unsafe { MonitorFromPoint(anchor, MONITOR_DEFAULTTONEAREST) };
-  if monitor.is_null() {
-    return Err(last_os_error("MonitorFromPoint failed"));
-  }
-
-  let mut info = MONITORINFO {
-    cbSize: size_of::<MONITORINFO>() as u32,
-    rcMonitor: Default::default(),
-    rcWork: Default::default(),
-    dwFlags: 0,
-  };
-  let ok = unsafe { GetMonitorInfoW(monitor, &mut info) };
-  if ok == 0 {
-    return Err(last_os_error("GetMonitorInfoW failed"));
-  }
-
-  Ok(POINT {
-    x: info.rcWork.left + SAFE_CORNER_INSET,
-    y: info.rcWork.bottom - SAFE_CORNER_INSET,
-  })
-}
-
-fn set_cursor_position(point: POINT) -> Result<(), String> {
-  let ok = unsafe { SetCursorPos(point.x, point.y) };
-
-  if ok == 0 {
-    Err(last_os_error("SetCursorPos failed"))
-  } else {
-    Ok(())
-  }
-}
-
-fn send_left_click() -> Result<(), String> {
-  let inputs = [
-    mouse_input(MOUSEEVENTF_LEFTDOWN),
-    mouse_input(MOUSEEVENTF_LEFTUP),
-  ];
-  let sent = unsafe { SendInput(inputs.len() as u32, inputs.as_ptr(), size_of::<INPUT>() as i32) };
-
-  if sent != inputs.len() as u32 {
-    Err(last_os_error("SendInput failed"))
-  } else {
-    Ok(())
-  }
-}
-
-fn mouse_input(flags: u32) -> INPUT {
-  INPUT {
-    r#type: INPUT_MOUSE,
-    Anonymous: INPUT_0 {
-      mi: MOUSEINPUT {
-        dx: 0,
-        dy: 0,
-        mouseData: 0,
-        dwFlags: flags,
-        time: 0,
-        dwExtraInfo: 0,
-      },
-    },
-  }
-}
-
 fn last_os_error(prefix: &str) -> String {
   let code = unsafe { GetLastError() };
   format!("{prefix}: Windows error {code}")
@@ -350,4 +216,51 @@ fn last_os_error(prefix: &str) -> String {
 
 fn now_isoish() -> String {
   chrono::Utc::now().to_rfc3339()
+}
+
+#[cfg(test)]
+mod tests {
+  use super::{PreventSleepManager, PreventSleepRuntime, PreventSleepStatus};
+  use std::sync::Arc;
+
+  fn snapshot(runtime: &Arc<PreventSleepRuntime>, enabled: bool) -> PreventSleepStatus {
+    PreventSleepStatus {
+      enabled,
+      last_pulse_at: runtime
+        .last_pulse_at
+        .lock()
+        .ok()
+        .and_then(|value| value.clone()),
+      error: runtime
+        .last_error
+        .lock()
+        .ok()
+        .and_then(|value| value.clone()),
+    }
+  }
+
+  #[test]
+  fn status_can_represent_disabled_runtime_with_error() {
+    let runtime = Arc::new(PreventSleepRuntime::default());
+    runtime.write_error(Some("SetThreadExecutionState failed".into()));
+
+    let status = snapshot(&runtime, false);
+
+    assert!(!status.enabled);
+    assert_eq!(status.error.as_deref(), Some("SetThreadExecutionState failed"));
+  }
+
+  #[test]
+  fn stop_clears_stale_runtime_state() {
+    let manager = PreventSleepManager::default();
+    manager.runtime.write_error(Some("temporary native error".into()));
+    manager.runtime.write_last_pulse_at(Some("2026-06-09T00:00:00Z".into()));
+
+    manager.stop();
+
+    let status = manager.status();
+    assert!(!status.enabled);
+    assert_eq!(status.error, None);
+    assert_eq!(status.last_pulse_at, None);
+  }
 }

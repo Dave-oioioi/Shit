@@ -28,6 +28,7 @@ const MENU_EXIT_ID: &str = "tray-exit";
 const NAVIGATE_EVENT: &str = "shell:navigate";
 const WINDOW_STATE_FILE: &str = "window-state.json";
 const WINDOW_STATE_VERSION: u32 = 2;
+const RIGHT_EDGE_PADDING: i32 = 24;
 const EDGE_PADDING: i32 = 12;
 const SHELL_WIDTH: u32 = 455;
 const SHELL_HEIGHT: u32 = 660;
@@ -237,48 +238,87 @@ fn apply_window_position<R: tauri::Runtime>(
   force_corner: bool,
 ) -> tauri::Result<()> {
   let saved = state.saved_position.lock().ok().and_then(|guard| *guard);
-
-  let position = if !force_corner {
-    if let Some(saved) = saved {
-      PhysicalPosition::new(saved.x, saved.y)
-    } else {
-      calculate_initial_position(app, window, anchor)?
-    }
-  } else {
-    calculate_initial_position(app, window, anchor)?
-  };
+  let position = calculate_window_position(app, window, saved, anchor, force_corner)?;
 
   window.set_position(Position::Physical(position))?;
   Ok(())
 }
 
-fn calculate_initial_position<R: tauri::Runtime>(
+fn calculate_window_position<R: tauri::Runtime>(
   app: &AppHandle<R>,
   window: &tauri::WebviewWindow<R>,
+  saved: Option<SavedWindowPosition>,
   anchor: Option<PhysicalPosition<i32>>,
+  _force_corner: bool,
 ) -> tauri::Result<PhysicalPosition<i32>> {
   let anchor = anchor.or_else(|| app.cursor_position().ok().map(|position| {
     PhysicalPosition::new(position.x.round() as i32, position.y.round() as i32)
   }));
-  let monitor = if let Some(anchor) = anchor {
+  let saved_position = saved.map(|position| PhysicalPosition::new(position.x, position.y));
+  let monitor_point = anchor.or(saved_position);
+  let monitor = if let Some(point) = monitor_point {
     window
-      .monitor_from_point(f64::from(anchor.x), f64::from(anchor.y))?
+      .monitor_from_point(f64::from(point.x), f64::from(point.y))?
       .or_else(|| window.primary_monitor().ok().flatten())
   } else {
     window.primary_monitor().ok().flatten()
   };
-  let size = PhysicalSize::new(SHELL_WIDTH, SHELL_HEIGHT);
 
   if let Some(monitor) = monitor {
     let work_area = monitor.work_area();
-    let x = work_area.position.x + work_area.size.width as i32 - size.width as i32 - EDGE_PADDING;
-    let y =
-      work_area.position.y + work_area.size.height as i32 - size.height as i32 - EDGE_PADDING;
-
-    return Ok(PhysicalPosition::new(x.max(work_area.position.x), y.max(work_area.position.y)));
+    let window_size = scaled_window_size(monitor.scale_factor());
+    return Ok(clamp_position_to_work_area(
+      compute_corner_position(work_area.position, work_area.size, window_size),
+      work_area.position,
+      work_area.size,
+      window_size,
+    ));
   }
 
   Ok(PhysicalPosition::new(160, 80))
+}
+
+fn scaled_window_size(scale_factor: f64) -> PhysicalSize<u32> {
+  PhysicalSize::new(
+    (f64::from(SHELL_WIDTH) * scale_factor).round() as u32,
+    (f64::from(SHELL_HEIGHT) * scale_factor).round() as u32,
+  )
+}
+
+fn compute_corner_position(
+  work_area_position: PhysicalPosition<i32>,
+  work_area_size: PhysicalSize<u32>,
+  window_size: PhysicalSize<u32>,
+) -> PhysicalPosition<i32> {
+  let max_x = work_area_position.x + work_area_size.width as i32
+    - window_size.width as i32
+    - RIGHT_EDGE_PADDING;
+  let max_y = work_area_position.y + work_area_size.height as i32
+    - window_size.height as i32
+    - EDGE_PADDING;
+
+  PhysicalPosition::new(max_x.max(work_area_position.x), max_y.max(work_area_position.y))
+}
+
+fn clamp_position_to_work_area(
+  position: PhysicalPosition<i32>,
+  work_area_position: PhysicalPosition<i32>,
+  work_area_size: PhysicalSize<u32>,
+  window_size: PhysicalSize<u32>,
+) -> PhysicalPosition<i32> {
+  let min_x = work_area_position.x;
+  let min_y = work_area_position.y;
+  let max_x =
+    (work_area_position.x + work_area_size.width as i32
+      - window_size.width as i32
+      - RIGHT_EDGE_PADDING)
+      .max(min_x);
+  let max_y = (work_area_position.y + work_area_size.height as i32
+    - window_size.height as i32
+    - EDGE_PADDING)
+    .max(min_y);
+
+  PhysicalPosition::new(position.x.clamp(min_x, max_x), position.y.clamp(min_y, max_y))
 }
 
 fn persist_window_position<R: tauri::Runtime>(window: &Window<R>) -> tauri::Result<()> {
@@ -345,4 +385,39 @@ fn prevent_sleep_status(
   manager: tauri::State<'_, PreventSleepManager>,
 ) -> PreventSleepStatus {
   manager.status()
+}
+
+#[cfg(test)]
+mod tests {
+  use super::{
+    compute_corner_position, scaled_window_size, PhysicalPosition, PhysicalSize, EDGE_PADDING,
+    RIGHT_EDGE_PADDING, SHELL_HEIGHT, SHELL_WIDTH,
+  };
+
+  #[test]
+  fn keeps_window_inside_monitor_work_area_at_high_dpi() {
+    let work_area_position = PhysicalPosition::new(0, 0);
+    let work_area_size = PhysicalSize::new(1920, 1040);
+    let window_size = scaled_window_size(1.5);
+
+    let position = compute_corner_position(work_area_position, work_area_size, window_size);
+
+    assert_eq!(position.x, 1920 - window_size.width as i32 - RIGHT_EDGE_PADDING);
+    assert_eq!(
+      position.y,
+      1040 - window_size.height as i32 - EDGE_PADDING
+    );
+  }
+
+  #[test]
+  fn clamps_to_work_area_when_window_is_taller_than_available_space() {
+    let position = compute_corner_position(
+      PhysicalPosition::new(100, 200),
+      PhysicalSize::new(520, 480),
+      PhysicalSize::new(SHELL_WIDTH, SHELL_HEIGHT),
+    );
+
+    assert_eq!(position.x, 141);
+    assert_eq!(position.y, 200);
+  }
 }

@@ -40,7 +40,7 @@ The SHIT VAULT main shell is complete. The next goal is to develop real card fun
 
 ## Open Issues
 
-- `prevent-sleep` currently has UI only; it does not yet call Windows APIs.
+- `prevent-sleep` now calls native Windows keep-awake APIs, but its runtime semantics should continue to be treated carefully because the card is promising real OS behavior.
 - App install/update flow is intentionally not finalized.
 - Module state persistence beyond current stores may need design once real behavior exists.
 - The old `ModuleSettingsDrawer` still exists for compatibility but the current UI uses inline settings.
