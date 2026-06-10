@@ -4,7 +4,8 @@ mod auto_mixing;
 mod prevent_sleep;
 
 use auto_mixing::{
-  AutoMixingManager, AutoMixingRequest, AutoMixingStatus, AutoMixingTarget,
+  AutoMixingDiagnostics, AutoMixingManager, AutoMixingRequest, AutoMixingStatus,
+  AutoMixingTarget,
 };
 use prevent_sleep::{PreventSleepManager, PreventSleepRequest, PreventSleepStatus};
 use serde::{Deserialize, Serialize};
@@ -81,6 +82,7 @@ fn main() {
       auto_mixing_set_enabled,
       auto_mixing_status,
       auto_mixing_list_targets,
+      auto_mixing_diagnostics,
       prevent_sleep_set_enabled,
       prevent_sleep_status,
     ])
@@ -400,6 +402,13 @@ fn auto_mixing_list_targets(
   manager: tauri::State<'_, AutoMixingManager>,
 ) -> Result<Vec<AutoMixingTarget>, String> {
   manager.list_targets()
+}
+
+#[tauri::command]
+fn auto_mixing_diagnostics(
+  manager: tauri::State<'_, AutoMixingManager>,
+) -> Result<AutoMixingDiagnostics, String> {
+  manager.diagnostics()
 }
 
 #[tauri::command]

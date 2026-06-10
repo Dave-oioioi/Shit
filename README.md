@@ -2,7 +2,7 @@
 
 SHIT VAULT is a Windows desktop tray app built with Tauri, React, TypeScript, Zustand, Vitest, and Rust.
 
-The shell is now stable product infrastructure. The first fully landed module is `prevent-sleep`, which in product terms is a desktop keepalive tool rather than a literal sleep-toggle label.
+The shell is now stable product infrastructure. The first fully landed module is `prevent-sleep`, which in product terms is a desktop keepalive tool rather than a literal sleep-toggle label. `prevent-sleep` functionality is now frozen; future changes to that module are UI-only unless the feature is explicitly reopened.
 
 ## Current State
 
@@ -13,11 +13,15 @@ The shell is now stable product infrastructure. The first fully landed module is
 - Bottom-right popup shell with transparent rounded window styling.
 - Left drawer navigation and card system are complete enough to protect.
 - `prevent-sleep` is now fully wired to native Windows behavior.
+- `prevent-sleep` functionality is complete and frozen.
+- `auto-mixing` is the current feature development focus.
 - Installer packaging is enabled through Tauri NSIS bundling.
 
 ## Prevent Sleep
 
 The `prevent-sleep` card is no longer a placeholder. It now runs a native Rust keepalive runtime through Tauri commands.
+
+Functional status: complete and frozen. Do not change native behavior, command semantics, runtime state, or settings behavior unless the user explicitly reopens this feature. UI-only polish is allowed when requested.
 
 Current behavior:
 
@@ -178,4 +182,4 @@ git diff --check
 
 ## Next Focus
 
-With the shell and `prevent-sleep` module landed, the next work should shift to the remaining cards and deeper desktop QA around real-world monitor layouts, scaling, tray behavior, and long-running native module reliability.
+With the shell and `prevent-sleep` module landed and frozen, current feature work should focus on `auto-mixing`. Keep shell code stable, keep feature logic inside `src/modules/auto-mixing/` and `src-tauri/src/auto_mixing.rs`, and preserve the existing React -> Tauri -> Rust command pattern.

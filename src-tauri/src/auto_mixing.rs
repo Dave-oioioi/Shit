@@ -31,12 +31,16 @@ use windows::{
 };
 
 const DEFAULT_DUCKED_VOLUME_PERCENT: u8 = 15;
-const DEFAULT_RESTORE_DURATION_MS: u64 = 300;
-const POLL_INTERVAL_MS: u64 = 200;
+const DEFAULT_RESTORE_DURATION_MS: u64 = 120;
+const LEGACY_DEFAULT_RESTORE_DURATION_MS: u64 = 300;
+const DEFAULT_ATTACK_DURATION_MS: u64 = 35;
+const RELEASE_HOLD_MS: u64 = 50;
+const POLL_INTERVAL_MS: u64 = 40;
 const MAX_DUCKED_VOLUME_PERCENT: u8 = 100;
 const MIN_RESTORE_DURATION_MS: u64 = 0;
 const MAX_RESTORE_DURATION_MS: u64 = 10_000;
 const VOLUME_EPSILON: f32 = 0.02;
+const MANUAL_OVERRIDE_EPSILON: f32 = 0.04;
 
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -46,6 +50,10 @@ pub struct AutoMixingRequest {
   selected_executables: Vec<String>,
   #[serde(default)]
   blocked_executables: Vec<String>,
+  #[serde(default)]
+  anchor_executables: Vec<String>,
+  #[serde(default)]
+  excluded_executables: Vec<String>,
   ducked_volume_percent: Option<u8>,
   restore_duration_ms: Option<u64>,
 }
@@ -79,6 +87,37 @@ pub struct AutoMixingTarget {
   is_running: bool,
 }
 
+#[derive(Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoMixingDiagnostics {
+  current_sessions: Vec<AutoMixingDiagnosticSession>,
+  ducked_sessions: Vec<AutoMixingDuckedSession>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoMixingDiagnosticSession {
+  session_key: String,
+  executable_name: String,
+  display_name: String,
+  process_id: Option<u32>,
+  active: bool,
+  current_volume: f32,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoMixingDuckedSession {
+  session_key: String,
+  executable_name: String,
+  display_name: String,
+  process_id: Option<u32>,
+  current_volume: f32,
+  original_volume: f32,
+  expected_ducked_volume: f32,
+  manual_override: bool,
+}
+
 #[derive(Default)]
 pub struct AutoMixingManager {
   worker: Mutex<Option<AutoMixingWorker>>,
@@ -91,6 +130,7 @@ struct AutoMixingRuntime {
   active_duck_count: Mutex<usize>,
   observed_session_count: Mutex<usize>,
   last_action_at: Mutex<Option<String>>,
+  diagnostics: Mutex<AutoMixingDiagnostics>,
 }
 
 impl AutoMixingRuntime {
@@ -117,6 +157,24 @@ impl AutoMixingRuntime {
       *last_action_at = value;
     }
   }
+
+  fn write_diagnostics(&self, value: AutoMixingDiagnostics) {
+    if let Ok(mut diagnostics) = self.diagnostics.lock() {
+      *diagnostics = value;
+    }
+  }
+
+  fn clear_diagnostics(&self) {
+    self.write_diagnostics(AutoMixingDiagnostics::default());
+  }
+
+  fn diagnostics(&self) -> AutoMixingDiagnostics {
+    self
+      .diagnostics
+      .lock()
+      .map(|diagnostics| diagnostics.clone())
+      .unwrap_or_default()
+  }
 }
 
 struct AutoMixingWorker {
@@ -126,8 +184,8 @@ struct AutoMixingWorker {
 
 #[derive(Clone)]
 struct WorkerConfig {
-  selected_executables: BTreeSet<String>,
-  blocked_executables: BTreeSet<String>,
+  anchor_executables: BTreeSet<String>,
+  excluded_executables: BTreeSet<String>,
   ducked_volume: f32,
   restore_duration: Duration,
 }
@@ -148,13 +206,14 @@ struct DuckedSession {
   original_volume: f32,
   expected_ducked_volume: f32,
   volume: ISimpleAudioVolume,
+  last_applied_volume: f32,
+  release_started_at: Option<Instant>,
   manual_override: bool,
 }
 
 #[derive(Clone)]
 struct ProcessSnapshot {
   executable_name: String,
-  display_name: String,
   process_id: u32,
 }
 
@@ -243,6 +302,18 @@ impl AutoMixingManager {
       .map_err(|_| "auto mixing target listing panicked".to_string())?
   }
 
+  pub fn diagnostics(&self) -> Result<AutoMixingDiagnostics, String> {
+    let ducked_sessions = self.runtime.diagnostics().ducked_sessions;
+    let handle = thread::Builder::new()
+      .name("auto-mixing-diagnostics".into())
+      .spawn(move || diagnostics_once(ducked_sessions))
+      .map_err(|error| format!("auto mixing diagnostics failed to start: {error}"))?;
+
+    handle
+      .join()
+      .map_err(|_| "auto mixing diagnostics panicked".to_string())?
+  }
+
   pub fn stop(&self) {
     let worker = self.worker.lock().ok().and_then(|mut worker| worker.take());
 
@@ -254,6 +325,7 @@ impl AutoMixingManager {
     self.runtime.write_runtime_error(None);
     self.runtime.write_active_duck_count(0);
     self.runtime.write_observed_session_count(0);
+    self.runtime.clear_diagnostics();
   }
 
   fn start(&self, request: AutoMixingRequest) -> Result<(), String> {
@@ -261,6 +333,7 @@ impl AutoMixingManager {
     self.runtime.write_runtime_error(None);
     self.runtime.write_active_duck_count(0);
     self.runtime.write_observed_session_count(0);
+    self.runtime.clear_diagnostics();
 
     let config = WorkerConfig::from_request(request);
     let stop = Arc::new(AtomicBool::new(false));
@@ -295,16 +368,23 @@ impl Drop for AutoMixingManager {
 
 impl WorkerConfig {
   fn from_request(request: AutoMixingRequest) -> Self {
-    let blocked_executables = sanitize_executables(&request.blocked_executables);
-    let selected_executables =
-      sanitize_executables(&request.selected_executables)
+    let excluded_executables =
+      sanitize_executables(&merge_executable_lists(
+        request.excluded_executables,
+        request.blocked_executables,
+      ));
+    let anchor_executables =
+      sanitize_executables(&merge_executable_lists(
+        request.anchor_executables,
+        request.selected_executables,
+      ))
         .into_iter()
-        .filter(|executable| !blocked_executables.contains(executable))
+        .filter(|executable| !excluded_executables.contains(executable))
         .collect();
 
     Self {
-      selected_executables,
-      blocked_executables,
+      anchor_executables,
+      excluded_executables,
       ducked_volume: f32::from(
         request
           .ducked_volume_percent
@@ -312,13 +392,23 @@ impl WorkerConfig {
           .min(MAX_DUCKED_VOLUME_PERCENT),
       ) / 100.0,
       restore_duration: Duration::from_millis(
-        request
-          .restore_duration_ms
-          .unwrap_or(DEFAULT_RESTORE_DURATION_MS)
-          .clamp(MIN_RESTORE_DURATION_MS, MAX_RESTORE_DURATION_MS),
+        normalize_restore_duration_ms(request.restore_duration_ms),
       ),
     }
   }
+}
+
+fn normalize_restore_duration_ms(value: Option<u64>) -> u64 {
+  let duration = value.unwrap_or(DEFAULT_RESTORE_DURATION_MS);
+  if duration == LEGACY_DEFAULT_RESTORE_DURATION_MS {
+    return DEFAULT_RESTORE_DURATION_MS;
+  }
+
+  duration.clamp(MIN_RESTORE_DURATION_MS, MAX_RESTORE_DURATION_MS)
+}
+
+fn merge_executable_lists(primary: Vec<String>, legacy: Vec<String>) -> Vec<String> {
+  primary.into_iter().chain(legacy).collect()
 }
 
 fn sanitize_executables(executables: &[String]) -> BTreeSet<String> {
@@ -360,6 +450,7 @@ fn run_worker(stop: Arc<AtomicBool>, config: WorkerConfig, runtime: Arc<AutoMixi
         runtime.write_runtime_error(None);
         runtime.write_observed_session_count(sessions.len());
         apply_ducking_round(&config, &sessions, &mut tracked_sessions, &stop);
+        runtime.write_diagnostics(build_runtime_diagnostics(&sessions, &tracked_sessions));
         runtime.write_active_duck_count(
           tracked_sessions
             .values()
@@ -372,6 +463,7 @@ fn run_worker(stop: Arc<AtomicBool>, config: WorkerConfig, runtime: Arc<AutoMixi
         runtime.write_runtime_error(Some(error));
         runtime.write_active_duck_count(0);
         runtime.write_observed_session_count(0);
+        runtime.clear_diagnostics();
       }
     }
 
@@ -386,11 +478,13 @@ fn apply_ducking_round(
   config: &WorkerConfig,
   sessions: &[SessionSnapshot],
   tracked_sessions: &mut BTreeMap<String, DuckedSession>,
-  stop: &AtomicBool,
+  _stop: &AtomicBool,
 ) {
+  let now = Instant::now();
   let active_trigger_executables = compute_active_trigger_executables(
     sessions,
-    &config.blocked_executables,
+    &config.anchor_executables,
+    &config.excluded_executables,
   );
   let active_sessions: BTreeMap<&str, &SessionSnapshot> = sessions
     .iter()
@@ -400,9 +494,10 @@ fn apply_ducking_round(
   for session in sessions {
     let should_duck = should_duck_session(
       &session.executable_name,
+      session.active,
       &active_trigger_executables,
-      &config.selected_executables,
-      &config.blocked_executables,
+      &config.anchor_executables,
+      &config.excluded_executables,
     );
 
     if should_duck {
@@ -414,77 +509,160 @@ fn apply_ducking_round(
 
           if user_changed_ducked_volume(
             tracked.original_volume,
-            tracked.expected_ducked_volume,
+            tracked.last_applied_volume,
             session.current_volume,
           ) {
             tracked.manual_override = true;
             continue;
           }
 
-          if (session.current_volume - tracked.expected_ducked_volume).abs() > VOLUME_EPSILON {
-            let _ = set_session_volume(&tracked.volume, tracked.expected_ducked_volume);
+          tracked.release_started_at = None;
+          let next_volume = advance_envelope_volume(
+            session.current_volume,
+            tracked.expected_ducked_volume,
+            Duration::from_millis(DEFAULT_ATTACK_DURATION_MS),
+          );
+          if (next_volume - session.current_volume).abs() > VOLUME_EPSILON
+            && set_session_volume(&tracked.volume, next_volume).is_ok()
+          {
+            tracked.last_applied_volume = next_volume;
           }
         }
         None => {
-          if set_session_volume(&session.volume, config.ducked_volume).is_ok() {
-            tracked_sessions.insert(
-              session.session_key.clone(),
-              DuckedSession {
-                executable_name: session.executable_name.clone(),
-                original_volume: session.current_volume,
-                expected_ducked_volume: config.ducked_volume,
-                volume: session.volume.clone(),
-                manual_override: false,
-              },
+          let target_volume = config.ducked_volume.min(session.current_volume);
+          if (session.current_volume - target_volume).abs() > VOLUME_EPSILON {
+            let next_volume = advance_envelope_volume(
+              session.current_volume,
+              target_volume,
+              Duration::from_millis(DEFAULT_ATTACK_DURATION_MS),
             );
+            if set_session_volume(&session.volume, next_volume).is_ok() {
+              tracked_sessions.insert(
+                session.session_key.clone(),
+                DuckedSession {
+                  executable_name: session.executable_name.clone(),
+                  original_volume: session.current_volume,
+                  expected_ducked_volume: target_volume,
+                  volume: session.volume.clone(),
+                  last_applied_volume: next_volume,
+                  release_started_at: None,
+                  manual_override: false,
+                },
+              );
+            }
           }
         }
       }
     }
   }
 
-  let stale_keys: Vec<String> = tracked_sessions
-    .keys()
-    .filter(|key| !active_sessions.contains_key(key.as_str()))
-    .cloned()
-    .collect();
+  let mut stale_keys = Vec::new();
+  let mut released_keys = Vec::new();
 
-  for key in stale_keys {
-    tracked_sessions.remove(&key);
-  }
+  for (key, tracked) in tracked_sessions.iter_mut() {
+    let Some(active_session) = active_sessions.get(key.as_str()) else {
+      stale_keys.push(key.clone());
+      continue;
+    };
 
-  let to_release: Vec<String> = tracked_sessions
-    .iter()
-    .filter_map(|(key, tracked)| {
-      let active_session = active_sessions.get(key.as_str())?;
-      let still_selected = config.selected_executables.contains(&tracked.executable_name);
-      let still_blocked = config.blocked_executables.contains(&tracked.executable_name);
-      let trigger_remains = should_duck_session(
+      let still_anchor = config.anchor_executables.contains(&tracked.executable_name);
+      let still_excluded = config.excluded_executables.contains(&tracked.executable_name);
+      let should_remain_ducked = should_duck_session(
         &tracked.executable_name,
+        active_session.active,
         &active_trigger_executables,
-        &config.selected_executables,
-        &config.blocked_executables,
+        &config.anchor_executables,
+        &config.excluded_executables,
       );
 
-      if still_selected && !still_blocked && trigger_remains && active_session.active {
-        None
-      } else {
-        Some(key.clone())
-      }
+    if still_anchor && !still_excluded && should_remain_ducked {
+      continue;
+    }
+
+    if tracked.manual_override {
+      released_keys.push(key.clone());
+      continue;
+    }
+
+    let release_started_at = *tracked.release_started_at.get_or_insert(now);
+    if now.duration_since(release_started_at) < Duration::from_millis(RELEASE_HOLD_MS) {
+      continue;
+    }
+
+    let current_volume = get_session_volume(&tracked.volume).unwrap_or(active_session.current_volume);
+    if user_changed_ducked_volume(
+      tracked.original_volume,
+      tracked.last_applied_volume,
+      current_volume,
+    ) {
+      tracked.manual_override = true;
+      released_keys.push(key.clone());
+      continue;
+    }
+
+    let next_volume = advance_envelope_volume(
+      current_volume,
+      tracked.original_volume,
+      config.restore_duration,
+    );
+    if set_session_volume(&tracked.volume, next_volume).is_ok() {
+      tracked.last_applied_volume = next_volume;
+    }
+
+    if (next_volume - tracked.original_volume).abs() <= VOLUME_EPSILON {
+      let _ = set_session_volume(&tracked.volume, tracked.original_volume);
+      released_keys.push(key.clone());
+    }
+  }
+
+  for key in stale_keys.into_iter().chain(released_keys) {
+    tracked_sessions.remove(&key);
+  }
+}
+
+fn build_runtime_diagnostics(
+  sessions: &[SessionSnapshot],
+  tracked_sessions: &BTreeMap<String, DuckedSession>,
+) -> AutoMixingDiagnostics {
+  let sessions_by_key: BTreeMap<&str, &SessionSnapshot> = sessions
+    .iter()
+    .map(|session| (session.session_key.as_str(), session))
+    .collect();
+  let current_sessions = sessions
+    .iter()
+    .map(session_to_diagnostic_session)
+    .collect::<Vec<_>>();
+  let ducked_sessions = tracked_sessions
+    .iter()
+    .filter_map(|(session_key, tracked)| {
+      let session = sessions_by_key.get(session_key.as_str())?;
+      Some(AutoMixingDuckedSession {
+        session_key: session.session_key.clone(),
+        executable_name: session.executable_name.clone(),
+        display_name: session.display_name.clone(),
+        process_id: Some(session.process_id),
+        current_volume: session.current_volume,
+        original_volume: tracked.original_volume,
+        expected_ducked_volume: tracked.expected_ducked_volume,
+        manual_override: tracked.manual_override,
+      })
     })
     .collect();
 
-  for key in to_release {
-    if let Some(tracked) = tracked_sessions.remove(&key) {
-      if !tracked.manual_override {
-        let _ = restore_session_volume(
-          &tracked.volume,
-          tracked.original_volume,
-          config.restore_duration,
-          stop,
-        );
-      }
-    }
+  AutoMixingDiagnostics {
+    current_sessions,
+    ducked_sessions,
+  }
+}
+
+fn session_to_diagnostic_session(session: &SessionSnapshot) -> AutoMixingDiagnosticSession {
+  AutoMixingDiagnosticSession {
+    session_key: session.session_key.clone(),
+    executable_name: session.executable_name.clone(),
+    display_name: session.display_name.clone(),
+    process_id: Some(session.process_id),
+    active: session.active,
+    current_volume: session.current_volume,
   }
 }
 
@@ -517,24 +695,30 @@ fn restore_all_sessions(
 
 fn compute_active_trigger_executables(
   sessions: &[SessionSnapshot],
-  blocked_executables: &BTreeSet<String>,
+  anchor_executables: &BTreeSet<String>,
+  excluded_executables: &BTreeSet<String>,
 ) -> BTreeSet<String> {
   compute_active_trigger_executables_from_iter(
     sessions
       .iter()
       .map(|session| (session.executable_name.as_str(), session.active)),
-    blocked_executables,
+    anchor_executables,
+    excluded_executables,
   )
 }
 
 fn compute_active_trigger_executables_from_iter<'a>(
   sessions: impl IntoIterator<Item = (&'a str, bool)>,
-  blocked_executables: &BTreeSet<String>,
+  anchor_executables: &BTreeSet<String>,
+  excluded_executables: &BTreeSet<String>,
 ) -> BTreeSet<String> {
   sessions
     .into_iter()
     .filter(|(executable_name, active)| {
-      *active && !blocked_executables.contains(&executable_name.to_ascii_lowercase())
+      let executable_name = executable_name.to_ascii_lowercase();
+      *active
+        && !anchor_executables.contains(&executable_name)
+        && !excluded_executables.contains(&executable_name)
     })
     .map(|(executable_name, _)| executable_name.to_ascii_lowercase())
     .collect()
@@ -542,45 +726,44 @@ fn compute_active_trigger_executables_from_iter<'a>(
 
 fn should_duck_session(
   executable_name: &str,
+  session_active: bool,
   active_trigger_executables: &BTreeSet<String>,
-  selected_executables: &BTreeSet<String>,
-  blocked_executables: &BTreeSet<String>,
+  anchor_executables: &BTreeSet<String>,
+  excluded_executables: &BTreeSet<String>,
 ) -> bool {
-  selected_executables.contains(executable_name)
-    && !blocked_executables.contains(executable_name)
-    && active_trigger_executables
-      .iter()
-      .any(|trigger| trigger != executable_name)
+  session_active
+    && !active_trigger_executables.is_empty()
+    && anchor_executables.contains(executable_name)
+    && !excluded_executables.contains(executable_name)
 }
 
 fn user_changed_ducked_volume(original: f32, expected: f32, current: f32) -> bool {
-  (current - expected).abs() > VOLUME_EPSILON && (current - original).abs() > VOLUME_EPSILON
+  (current - expected).abs() > MANUAL_OVERRIDE_EPSILON
+    && (current - original).abs() > MANUAL_OVERRIDE_EPSILON
 }
 
 fn restore_session_volume(
   volume: &ISimpleAudioVolume,
   original_volume: f32,
-  duration: Duration,
-  stop: &AtomicBool,
+  _duration: Duration,
+  _stop: &AtomicBool,
 ) -> Result<(), String> {
+  set_session_volume(volume, original_volume)
+}
+
+fn advance_envelope_volume(current_volume: f32, target_volume: f32, duration: Duration) -> f32 {
+  let coefficient = envelope_coefficient(duration);
+  (current_volume + (target_volume - current_volume) * coefficient).clamp(0.0, 1.0)
+}
+
+fn envelope_coefficient(duration: Duration) -> f32 {
   if duration.is_zero() {
-    return set_session_volume(volume, original_volume);
+    return 1.0;
   }
 
-  let steps = 5u32;
-  let current_volume = get_session_volume(volume)?;
-  for step in 1..=steps {
-    if stop.load(Ordering::SeqCst) {
-      break;
-    }
-
-    let progress = step as f32 / steps as f32;
-    let next_volume = current_volume + (original_volume - current_volume) * progress;
-    set_session_volume(volume, next_volume)?;
-    thread::sleep(duration / steps);
-  }
-
-  Ok(())
+  let tick = Duration::from_millis(POLL_INTERVAL_MS).as_secs_f32();
+  let duration = duration.as_secs_f32().max(f32::EPSILON);
+  (1.0 - (-tick / duration).exp()).clamp(0.0, 1.0)
 }
 
 fn get_session_volume(volume: &ISimpleAudioVolume) -> Result<f32, String> {
@@ -600,18 +783,6 @@ fn list_targets_once() -> Result<Vec<AutoMixingTarget>, String> {
   let (_, sessions) = enumerate_default_output_sessions(&process_names)?;
 
   let mut targets: BTreeMap<String, AutoMixingTarget> = BTreeMap::new();
-
-  for process in processes {
-    targets
-      .entry(process.executable_name.clone())
-      .or_insert(AutoMixingTarget {
-        executable_name: process.executable_name.clone(),
-        display_name: process.display_name.clone(),
-        process_id: Some(process.process_id),
-        has_audio_session: false,
-        is_running: true,
-      });
-  }
 
   for session in sessions {
     let entry = targets
@@ -644,6 +815,20 @@ fn list_targets_once() -> Result<Vec<AutoMixingTarget>, String> {
   Ok(targets)
 }
 
+fn diagnostics_once(
+  ducked_sessions: Vec<AutoMixingDuckedSession>,
+) -> Result<AutoMixingDiagnostics, String> {
+  let _com = ComGuard::new()?;
+  let processes = enumerate_running_processes()?;
+  let process_names = processes_by_id(&processes);
+  let (_, sessions) = enumerate_default_output_sessions(&process_names)?;
+
+  Ok(AutoMixingDiagnostics {
+    current_sessions: sessions.iter().map(session_to_diagnostic_session).collect(),
+    ducked_sessions,
+  })
+}
+
 fn processes_by_id(processes: &[ProcessSnapshot]) -> BTreeMap<u32, ProcessSnapshot> {
   processes
     .iter()
@@ -659,7 +844,7 @@ fn enumerate_running_processes() -> Result<Vec<ProcessSnapshot>, String> {
   let mut entry = PROCESSENTRY32W::default();
   entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
 
-  let mut processes = BTreeMap::new();
+  let mut processes = Vec::new();
   let first = unsafe { Process32FirstW(snapshot, &mut entry) }.is_ok();
   if !first {
     unsafe {
@@ -671,9 +856,7 @@ fn enumerate_running_processes() -> Result<Vec<ProcessSnapshot>, String> {
   loop {
     let executable_name = wide_array_to_string(&entry.szExeFile);
     if !executable_name.is_empty() && executable_name.to_ascii_lowercase().ends_with(".exe") {
-      let executable_key = executable_name.to_ascii_lowercase();
-      processes.entry(executable_key).or_insert(ProcessSnapshot {
-        display_name: display_name_from_executable(&executable_name),
+      processes.push(ProcessSnapshot {
         executable_name: executable_name.to_ascii_lowercase(),
         process_id: entry.th32ProcessID,
       });
@@ -688,7 +871,7 @@ fn enumerate_running_processes() -> Result<Vec<ProcessSnapshot>, String> {
     let _ = CloseHandle(snapshot);
   }
 
-  Ok(processes.into_values().collect())
+  Ok(processes)
 }
 
 fn enumerate_default_output_sessions(
@@ -810,9 +993,10 @@ fn sleep_until_stop(stop: &AtomicBool, duration: Duration) -> bool {
 #[cfg(test)]
 mod tests {
   use super::{
-    compute_active_trigger_executables_from_iter, sanitize_executables, should_duck_session,
-    user_changed_ducked_volume, AutoMixingRequest, WorkerConfig,
-    DEFAULT_DUCKED_VOLUME_PERCENT, DEFAULT_RESTORE_DURATION_MS,
+    advance_envelope_volume, compute_active_trigger_executables_from_iter, envelope_coefficient,
+    normalize_restore_duration_ms, processes_by_id, sanitize_executables, should_duck_session,
+    user_changed_ducked_volume, AutoMixingRequest, ProcessSnapshot, WorkerConfig,
+    DEFAULT_ATTACK_DURATION_MS, DEFAULT_DUCKED_VOLUME_PERCENT, DEFAULT_RESTORE_DURATION_MS,
   };
   use std::{collections::BTreeSet, time::Duration};
 
@@ -822,15 +1006,52 @@ mod tests {
       enabled: true,
       selected_executables: vec!["Spotify.exe".into(), "bad".into(), "Discord.exe".into()],
       blocked_executables: vec!["discord.exe".into()],
+      anchor_executables: Vec::new(),
+      excluded_executables: Vec::new(),
       ducked_volume_percent: None,
       restore_duration_ms: None,
     });
 
-    assert!(config.selected_executables.contains("spotify.exe"));
-    assert!(!config.selected_executables.contains("discord.exe"));
-    assert!(config.blocked_executables.contains("discord.exe"));
+    assert!(config.anchor_executables.contains("spotify.exe"));
+    assert!(!config.anchor_executables.contains("discord.exe"));
+    assert!(config.excluded_executables.contains("discord.exe"));
     assert_eq!(config.ducked_volume, f32::from(DEFAULT_DUCKED_VOLUME_PERCENT) / 100.0);
     assert_eq!(config.restore_duration, Duration::from_millis(DEFAULT_RESTORE_DURATION_MS));
+  }
+
+  #[test]
+  fn legacy_restore_duration_uses_fast_default() {
+    assert_eq!(normalize_restore_duration_ms(None), DEFAULT_RESTORE_DURATION_MS);
+    assert_eq!(normalize_restore_duration_ms(Some(300)), DEFAULT_RESTORE_DURATION_MS);
+    assert_eq!(normalize_restore_duration_ms(Some(80)), 80);
+    assert_eq!(normalize_restore_duration_ms(Some(20_000)), 10_000);
+  }
+
+  #[test]
+  fn sidechain_envelope_has_fast_attack_and_smoother_release() {
+    let attack = envelope_coefficient(Duration::from_millis(DEFAULT_ATTACK_DURATION_MS));
+    let release = envelope_coefficient(Duration::from_millis(DEFAULT_RESTORE_DURATION_MS));
+
+    assert!(attack > 0.65);
+    assert!(attack < 0.70);
+    assert!(release > 0.28);
+    assert!(release < 0.29);
+
+    let ducked = advance_envelope_volume(
+      0.8,
+      0.15,
+      Duration::from_millis(DEFAULT_ATTACK_DURATION_MS),
+    );
+    let restored = advance_envelope_volume(
+      0.15,
+      0.8,
+      Duration::from_millis(DEFAULT_RESTORE_DURATION_MS),
+    );
+
+    assert!(ducked > 0.35);
+    assert!(ducked < 0.37);
+    assert!(restored > 0.33);
+    assert!(restored < 0.34);
   }
 
   #[test]
@@ -847,31 +1068,62 @@ mod tests {
   }
 
   #[test]
-  fn blocked_apps_do_not_trigger_ducking() {
-    let active_triggers =
-      BTreeSet::from(["discord.exe".to_string(), "zoom.exe".to_string()]);
+  fn active_other_sessions_duck_selected_bgm_sessions() {
+    let active_triggers = BTreeSet::from(["chrome.exe".to_string()]);
     let selected = BTreeSet::from(["spotify.exe".to_string()]);
     let blocked = BTreeSet::from(["discord.exe".to_string()]);
 
-    assert!(should_duck_session("spotify.exe", &active_triggers, &selected, &blocked));
-    assert!(!should_duck_session("discord.exe", &active_triggers, &selected, &blocked));
+    assert!(should_duck_session("spotify.exe", true, &active_triggers, &selected, &blocked));
+    assert!(!should_duck_session("chrome.exe", true, &active_triggers, &selected, &blocked));
+    assert!(!should_duck_session("discord.exe", true, &active_triggers, &selected, &blocked));
+    assert!(!should_duck_session("spotify.exe", false, &active_triggers, &selected, &blocked));
   }
 
   #[test]
-  fn active_trigger_executables_ignore_blocked_sessions() {
+  fn active_trigger_executables_ignore_selected_and_excluded_sessions() {
+    let selected = BTreeSet::from(["spotify.exe".to_string(), "qqmusic.exe".to_string()]);
     let blocked = BTreeSet::from(["discord.exe".to_string()]);
 
     let triggers = compute_active_trigger_executables_from_iter(
-      [("discord.exe", true), ("zoom.exe", true)],
+      [
+        ("spotify.exe", true),
+        ("qqmusic.exe", false),
+        ("chrome.exe", true),
+        ("discord.exe", true),
+      ],
+      &selected,
       &blocked,
     );
+
+    assert!(!triggers.contains("spotify.exe"));
+    assert!(!triggers.contains("qqmusic.exe"));
+    assert!(triggers.contains("chrome.exe"));
     assert!(!triggers.contains("discord.exe"));
-    assert!(triggers.contains("zoom.exe"));
   }
 
   #[test]
   fn manual_volume_change_is_detected() {
     assert!(user_changed_ducked_volume(0.8, 0.15, 0.42));
-    assert!(!user_changed_ducked_volume(0.8, 0.15, 0.15));
+    assert!(!user_changed_ducked_volume(0.8, 0.15, 0.17));
+  }
+
+  #[test]
+  fn processes_by_id_keeps_multiple_pids_for_same_executable() {
+    let processes = vec![
+      ProcessSnapshot {
+        executable_name: "chrome.exe".into(),
+        process_id: 101,
+      },
+      ProcessSnapshot {
+        executable_name: "chrome.exe".into(),
+        process_id: 202,
+      },
+    ];
+
+    let mapped = processes_by_id(&processes);
+
+    assert_eq!(mapped.len(), 2);
+    assert_eq!(mapped.get(&101).map(|process| process.executable_name.as_str()), Some("chrome.exe"));
+    assert_eq!(mapped.get(&202).map(|process| process.executable_name.as_str()), Some("chrome.exe"));
   }
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModuleManifest } from "@/app/registry/moduleTypes";
@@ -141,11 +141,10 @@ describe("AutoMixingCard", () => {
     });
     renderCard({
       settings: {
-        selectedExecutables: ["Spotify.exe"],
-        blockedExecutables: ["Discord.exe"],
+        anchorExecutables: ["Spotify.exe"],
+        excludedExecutables: ["Discord.exe"],
         duckedVolumePercent: 15,
         restoreDurationMs: 300,
-        sourceView: "audio-sessions",
       },
     });
 
@@ -155,10 +154,10 @@ describe("AutoMixingCard", () => {
       expect(invokeMock).toHaveBeenCalledWith("auto_mixing_set_enabled", {
         request: {
           enabled: true,
-          selectedExecutables: ["spotify.exe"],
-          blockedExecutables: ["discord.exe"],
+          anchorExecutables: ["spotify.exe"],
+          excludedExecutables: ["discord.exe"],
           duckedVolumePercent: 15,
-          restoreDurationMs: 300,
+          restoreDurationMs: 120,
         },
       });
     });
@@ -210,55 +209,62 @@ describe("AutoMixingCard", () => {
 describe("AutoMixingSettings", () => {
   beforeEach(() => {
     invokeMock.mockReset();
-    invokeMock.mockResolvedValue([
-      {
-        executableName: "spotify.exe",
-        displayName: "Spotify",
-        hasAudioSession: true,
-        isRunning: true,
-      },
-      {
-        executableName: "discord.exe",
-        displayName: "Discord",
-        hasAudioSession: true,
-        isRunning: true,
-      },
-      {
-        executableName: "foobar2000.exe",
-        displayName: "foobar2000",
-        hasAudioSession: false,
-        isRunning: true,
-      },
-    ]);
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === "auto_mixing_diagnostics") {
+        return {
+          currentSessions: [
+            {
+              sessionKey: "spotify-session",
+              executableName: "spotify.exe",
+              displayName: "Spotify",
+              processId: 101,
+              active: true,
+              currentVolume: 0.65,
+            },
+            {
+              sessionKey: "discord-session",
+              executableName: "discord.exe",
+              displayName: "Discord",
+              processId: 202,
+              active: true,
+              currentVolume: 0.55,
+            },
+            {
+              sessionKey: "foobar-session",
+              executableName: "foobar2000.exe",
+              displayName: "foobar2000",
+              processId: 303,
+              active: false,
+              currentVolume: 0.4,
+            },
+          ],
+          duckedSessions: [],
+        };
+      }
+
+      return {
+        enabled: true,
+        status: "running",
+        runtimeError: null,
+        activeDuckCount: 2,
+        observedSessionCount: 5,
+        lastActionAt: "2026-06-10T03:00:00.000Z",
+      };
+    });
   });
 
   it("switches source view cards correctly", async () => {
-    const user = userEvent.setup();
-    const onChange = vi.fn();
-
-    render(<StatefulAutoMixingSettings onChangeSpy={onChange} />);
+    render(<StatefulAutoMixingSettings onChangeSpy={vi.fn()} />);
 
     await waitFor(() => {
-      expect(invokeMock).toHaveBeenCalledWith("auto_mixing_list_targets");
+      expect(invokeMock).toHaveBeenCalledWith("auto_mixing_diagnostics");
     });
 
-    expect(screen.getByRole("tab", { name: /有音频的应用/ })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-
-    await user.click(screen.getByRole("tab", { name: /所有进程/ }));
-
-    expect(onChange).toHaveBeenLastCalledWith({
-      selectedExecutables: [],
-      blockedExecutables: [],
-      duckedVolumePercent: 15,
-      restoreDurationMs: 300,
-      sourceView: "all-processes",
-    });
+    expect(screen.getByRole("heading", { name: "系统音量合成器" })).toBeInTheDocument();
+    expect(screen.getAllByRole("option").length).toBe(3);
   });
 
-  it("adds an app to the auto-lower rules", async () => {
+  it("adds an app as a bgm target rule", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
 
@@ -274,29 +280,27 @@ describe("AutoMixingSettings", () => {
     expect(spotifyEntry).toBeTruthy();
 
     await user.click(spotifyEntry!);
-    await user.click(screen.getByRole("button", { name: "加入自动降低" }));
+    await user.click(screen.getByRole("button", { name: "设为BGM目标" }));
 
     expect(onChange).toHaveBeenLastCalledWith({
-      selectedExecutables: ["spotify.exe"],
-      blockedExecutables: [],
+      anchorExecutables: ["spotify.exe"],
+      excludedExecutables: [],
       duckedVolumePercent: 15,
-      restoreDurationMs: 300,
-      sourceView: "audio-sessions",
+      restoreDurationMs: 120,
     });
   });
 
-  it("moves the same exe from selected to blocked without duplication", async () => {
+  it("moves the same exe from bgm target to ignored trigger without duplication", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
 
     render(
       <StatefulAutoMixingSettings
         settings={{
-          selectedExecutables: ["spotify.exe"],
-          blockedExecutables: [],
+          anchorExecutables: ["spotify.exe"],
+          excludedExecutables: [],
           duckedVolumePercent: 15,
           restoreDurationMs: 300,
-          sourceView: "audio-sessions",
         }}
         onChangeSpy={onChange}
       />,
@@ -312,14 +316,15 @@ describe("AutoMixingSettings", () => {
     expect(spotifyEntry).toBeTruthy();
 
     await user.click(spotifyEntry!);
-    await user.click(screen.getByRole("button", { name: "加入屏蔽" }));
+    const selectedRulePanel = screen.getByText("BGM目标").closest(".auto-mixing-rule-panel");
+    expect(selectedRulePanel).toBeTruthy();
+    await user.click(within(selectedRulePanel as HTMLElement).getByRole("button", { name: "忽略此声音" }));
 
     expect(onChange).toHaveBeenLastCalledWith({
-      selectedExecutables: [],
-      blockedExecutables: ["spotify.exe"],
+      anchorExecutables: [],
+      excludedExecutables: ["spotify.exe"],
       duckedVolumePercent: 15,
-      restoreDurationMs: 300,
-      sourceView: "audio-sessions",
+      restoreDurationMs: 120,
     });
   });
 
@@ -327,17 +332,14 @@ describe("AutoMixingSettings", () => {
     render(<AutoMixingSettings moduleId="auto-mixing" manifest={manifest} settings={autoMixingSettings} disabled onChange={vi.fn()} />);
 
     await waitFor(() => {
-      expect(invokeMock).toHaveBeenCalledWith("auto_mixing_list_targets");
+      expect(invokeMock).toHaveBeenCalledWith("auto_mixing_diagnostics");
     });
 
-    expect(screen.getAllByRole("tab").every((element) => (element as HTMLButtonElement).disabled)).toBe(
-      true,
-    );
     expect(
       screen
         .getAllByRole("button")
         .filter((element) =>
-          ["加入自动降低", "加入屏蔽", "从规则中移除"].some((label) =>
+          ["设为BGM目标", "忽略此声音", "从规则中移除"].some((label) =>
             (element as HTMLButtonElement).textContent?.includes(label),
           ),
         )

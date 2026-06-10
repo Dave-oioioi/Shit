@@ -30,7 +30,11 @@ The automatic module discovery and validation layer driven by `import.meta.glob`
 
 ## Prevent Sleep
 
-The next real feature module. It will keep the Windows machine awake while enabled and release that behavior when disabled.
+A completed and functionally frozen module. It keeps the Windows machine awake while enabled and releases that behavior when disabled. Future work is UI-only unless the user explicitly reopens the feature.
+
+## Auto Mixing
+
+The current feature development focus. This module manages Windows audio-session mixing behavior from `src/modules/auto-mixing/` and native Tauri commands in `src-tauri/src/auto_mixing.rs`.
 
 ## Tray
 

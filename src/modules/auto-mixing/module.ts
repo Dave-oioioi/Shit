@@ -17,7 +17,7 @@ const moduleDefinition: ModuleDefinition<
     name: "auto-mixing",
     version: "0.1.0",
     title: "自动混音",
-    description: "按应用建立自动降音和屏蔽规则。",
+    description: "直接读取系统音量合成器，并以主音应用为锚点自动压低其它会话。",
     themeColor: "#58c6ff",
     icon: "waves",
     defaultSize: "2x1",

@@ -54,7 +54,7 @@ function buildStatusLine(state: AutoMixingState, settings: AutoMixingSettings) {
   }
 
   const ruleCount =
-    settings.selectedExecutables.length + settings.blockedExecutables.length;
+    settings.anchorExecutables.length + settings.excludedExecutables.length;
   const lastActionTime = formatTime(state.lastActionAt);
 
   if (lastActionTime) {
@@ -63,7 +63,7 @@ function buildStatusLine(state: AutoMixingState, settings: AutoMixingSettings) {
       : `最近动作 ${lastActionTime}`;
   }
 
-  return ruleCount > 0 ? `已配置 ${ruleCount} 条规则` : "优先扫描当前有音频的音乐类应用";
+  return ruleCount > 0 ? `已配置 ${ruleCount} 条规则` : "直接读取系统音量合成器中的会话";
 }
 
 export function AutoMixingCard({
@@ -136,8 +136,8 @@ export function AutoMixingCard({
       const nextStatus = await invoke<AutoMixingStatus>("auto_mixing_set_enabled", {
         request: {
           enabled: nextEnabled,
-          selectedExecutables: normalizedSettings.selectedExecutables,
-          blockedExecutables: normalizedSettings.blockedExecutables,
+          anchorExecutables: normalizedSettings.anchorExecutables,
+          excludedExecutables: normalizedSettings.excludedExecutables,
           duckedVolumePercent: normalizedSettings.duckedVolumePercent,
           restoreDurationMs: normalizedSettings.restoreDurationMs,
         },

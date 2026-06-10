@@ -1,5 +1,7 @@
 # PRD: Prevent Sleep Module
 
+Status: complete and functionally frozen. This PRD is historical context. Do not change `prevent-sleep` native behavior, command semantics, runtime state, or settings semantics unless the user explicitly reopens the feature. Future work on this module is UI-only by default.
+
 ## Problem Statement
 
 Users need SHIT VAULT to keep their Windows machine awake during daily work without opening a browser or managing a full settings-heavy utility. The current `prevent-sleep` card is only visual; enabling it does not yet affect system sleep behavior.

@@ -4,7 +4,11 @@ This document is the action standard for future agents working on SHIT VAULT.
 
 ## Product Direction
 
-SHIT VAULT is now a Windows desktop tray app. The main shell is considered complete enough to protect. Future work should focus on module functionality, starting with `prevent-sleep`.
+SHIT VAULT is now a Windows desktop tray app. The main shell is considered complete enough to protect.
+
+`prevent-sleep` is functionally complete and frozen. Do not change its native behavior, state model, command contract, or settings semantics unless the user explicitly reopens that feature. Future `prevent-sleep` work is UI-only by default.
+
+Current feature development should focus on `auto-mixing`.
 
 ## Non-Negotiables
 
@@ -14,6 +18,7 @@ SHIT VAULT is now a Windows desktop tray app. The main shell is considered compl
 - Preserve the current tray-first behavior: the app starts hidden, opens from tray, and hides on close/focus loss.
 - Keep card UI on the shared `CardFrame` pattern unless the user explicitly approves a new card system.
 - Keep module state and module settings separate.
+- Do not modify `prevent-sleep` functionality unless the user explicitly asks to reopen it.
 - Do not commit unless the user explicitly asks.
 - Do not use destructive git commands.
 
@@ -59,16 +64,17 @@ Recommended flow:
 4. React updates module state only after success.
 5. On failure, React preserves or rolls back state and shows a concise error.
 
-## Prevent Sleep Plan Guardrails
+## Prevent Sleep Freeze
 
-For `prevent-sleep`, implement Windows behavior in Rust first. The target behavior is:
+`prevent-sleep` is complete. Treat the current implementation as locked product behavior:
 
-- Enable: prevent system sleep while the module is active.
-- Disable: release the keep-awake request.
-- Exit: always release keep-awake state.
-- Failure: show a module-level error state.
+- Do not change native keepalive behavior.
+- Do not change enable/disable/status command semantics.
+- Do not change state/settings meaning.
+- Do not reopen startup/install behavior for this module.
+- UI-only polish is allowed when explicitly requested.
 
-Avoid implementing startup/install workflows until the core keep-awake behavior is stable.
+New native feature work should happen in other modules, starting with `auto-mixing`.
 
 ## Testing Standard
 

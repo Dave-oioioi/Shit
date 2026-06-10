@@ -2,12 +2,9 @@
 
 ## Current Goal
 
-SHIT VAULT main shell is complete enough to protect. The first real module, `prevent-sleep`, is now landed end-to-end and the project has also been packaged for desktop distribution with a GitHub Release.
+SHIT VAULT main shell is complete enough to protect. The first real module, `prevent-sleep`, is now landed end-to-end, functionally frozen, and the project has also been packaged for desktop distribution with a GitHub Release.
 
-The next session should treat the shell as stable infrastructure and focus on either:
-
-- deeper desktop QA for the landed `prevent-sleep` module, or
-- building the next real module card on top of the existing module contract.
+The next session should treat the shell and `prevent-sleep` behavior as stable infrastructure. Current feature development should focus on `auto-mixing`.
 
 ## Current Status
 
@@ -34,6 +31,7 @@ The next session should treat the shell as stable infrastructure and focus on ei
 - Added a working native `prevent-sleep` runtime in Rust.
 - Wired the `prevent-sleep` card to real Tauri commands.
 - Implemented mode-locked settings behavior while the card is enabled.
+- Froze `prevent-sleep` functionality; future changes are UI-only unless the feature is explicitly reopened.
 - Packaged the app as:
   - runnable release exe
   - NSIS installer
@@ -43,6 +41,8 @@ The next session should treat the shell as stable infrastructure and focus on ei
 ## Prevent Sleep: Real Product Meaning
 
 `prevent-sleep` is now a keepalive / mouse activity module, not a pure literal system sleep toggle.
+
+Functional status: complete and frozen. Do not change native behavior, command semantics, state semantics, or settings semantics unless the user explicitly asks to reopen this feature. UI-only polish is allowed when requested.
 
 Current implemented behavior:
 
@@ -107,6 +107,14 @@ Important note:
   - keepalive mode and timing settings UI
 - `src/modules/prevent-sleep/defaults.ts`
   - default runtime state and default user settings
+- `src-tauri/src/auto_mixing.rs`
+  - native Windows audio-session runtime for `auto-mixing`
+- `src/modules/auto-mixing/AutoMixingCard.tsx`
+  - command invocation, polling, and runtime feedback for `auto-mixing`
+- `src/modules/auto-mixing/AutoMixingSettings.tsx`
+  - target selection and rule management UI for `auto-mixing`
+- `src/modules/auto-mixing/defaults.ts`
+  - default runtime state and user settings for `auto-mixing`
 
 ## Important Decisions
 
@@ -115,21 +123,15 @@ Important note:
 - Native desktop behavior must live behind Tauri/Rust commands.
 - Card switches should only reflect actual native command success.
 - Shared card interaction language should stay centralized in `CardFrame` and shared styles.
-- `prevent-sleep` and its real keepalive semantics are intentionally divergent in naming; document this carefully when expanding the product.
+- `prevent-sleep` and its real keepalive semantics are intentionally divergent in naming; the behavior is now frozen.
+- Do not modify `prevent-sleep` functionality unless the user explicitly reopens it.
+- Current feature work belongs in `auto-mixing`.
 - Installer flow is now active and valid for distribution.
 
 ## Open Issues / Risks
 
-- Real-world QA is still important for `prevent-sleep` because current-monitor safe clicking can feel different across:
-  - taskbar layouts
-  - display scaling
-  - multi-monitor arrangements
-  - icon-dense desktop setups
-- Continuous clicking should keep receiving desktop QA attention to confirm:
-  - stop on mouse movement feels correct
-  - hotkey toggle never sticks
-  - long-running sessions stay stable
-- Some older docs still describe an earlier meaning of `prevent-sleep`; treat them carefully and update them when they become blocking.
+- `prevent-sleep` is frozen, so older improvement plans for that module should be treated as historical unless the user explicitly reopens the feature.
+- `auto-mixing` changes should avoid leaking module-specific behavior back into shell code.
 - The next module work should avoid leaking module-specific behavior back into shell code.
 
 ## Suggested Skills
@@ -137,9 +139,9 @@ Important note:
 - `grill-me`
   - for pressure-testing product semantics and future module behavior
 - `tdd`
-  - for module/runtime interaction changes
+  - for `auto-mixing` module/runtime interaction changes
 - `diagnose`
-  - if Windows cursor behavior, `SendInput`, or timing becomes inconsistent
+  - if Windows audio sessions, COM, process enumeration, or volume restore behavior becomes inconsistent
 - `frontend-design`
   - only when the user explicitly requests more shell/card visual work
 - `ui-ux-pro-max`
@@ -147,14 +149,10 @@ Important note:
 
 ## Next Step Recommendation
 
-Pick one of these two paths:
+Develop `auto-mixing` next:
 
-1. Desktop QA pass for `prevent-sleep`
-   - verify idle keepalive across multi-monitor and scaling setups
-   - verify continuous mode start/stop reliability
-   - verify no accidental corner-click side effects in real usage
-
-2. Start the next module card
-   - keep the shell untouched
-   - follow the existing module contract
-   - mirror the same React -> Tauri -> Rust pattern if OS behavior is needed
+1. Keep the shell untouched.
+2. Keep React changes inside `src/modules/auto-mixing/`.
+3. Keep native behavior inside `src-tauri/src/auto_mixing.rs`.
+4. Preserve the React -> Tauri -> Rust pattern.
+5. Treat `prevent-sleep` as frozen except for explicit UI-only work.
