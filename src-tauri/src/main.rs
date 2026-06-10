@@ -1,7 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod auto_mixing;
 mod prevent_sleep;
 
+use auto_mixing::{
+  AutoMixingManager, AutoMixingRequest, AutoMixingStatus, AutoMixingTarget,
+};
 use prevent_sleep::{PreventSleepManager, PreventSleepRequest, PreventSleepStatus};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -71,8 +75,12 @@ impl Default for AppState {
 fn main() {
   tauri::Builder::default()
     .manage(AppState::default())
+    .manage(AutoMixingManager::default())
     .manage(PreventSleepManager::default())
     .invoke_handler(tauri::generate_handler![
+      auto_mixing_set_enabled,
+      auto_mixing_status,
+      auto_mixing_list_targets,
       prevent_sleep_set_enabled,
       prevent_sleep_status,
     ])
@@ -121,6 +129,7 @@ fn main() {
         if !state.allow_exit.load(Ordering::SeqCst) {
           api.prevent_exit();
         } else {
+          app.state::<AutoMixingManager>().stop();
           app.state::<PreventSleepManager>().stop();
         }
       }
@@ -365,11 +374,32 @@ fn window_state_path<R: tauri::Runtime>(app: &AppHandle<R>) -> tauri::Result<Pat
 }
 
 fn request_exit<R: tauri::Runtime>(app: &AppHandle<R>) {
+  app.state::<AutoMixingManager>().stop();
   app.state::<PreventSleepManager>().stop();
   app.state::<AppState>()
     .allow_exit
     .store(true, Ordering::SeqCst);
   app.exit(0);
+}
+
+#[tauri::command]
+fn auto_mixing_set_enabled(
+  manager: tauri::State<'_, AutoMixingManager>,
+  request: AutoMixingRequest,
+) -> Result<AutoMixingStatus, String> {
+  manager.set_enabled(request)
+}
+
+#[tauri::command]
+fn auto_mixing_status(manager: tauri::State<'_, AutoMixingManager>) -> AutoMixingStatus {
+  manager.status()
+}
+
+#[tauri::command]
+fn auto_mixing_list_targets(
+  manager: tauri::State<'_, AutoMixingManager>,
+) -> Result<Vec<AutoMixingTarget>, String> {
+  manager.list_targets()
 }
 
 #[tauri::command]

@@ -41,6 +41,7 @@ const MOVE_SETTLE_MS: u64 = 60;
 const DOUBLE_CLICK_GAP_MS: u64 = 60;
 const CONTINUOUS_STOP_DISTANCE: i32 = 6;
 const DEFAULT_HOTKEY: &str = "PgDn";
+const SUPPORTED_HOTKEYS: [&str; 7] = ["PgDn", "PgUp", "End", "Home", "F8", "F9", "F10"];
 
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -244,15 +245,20 @@ impl WorkerConfig {
           .continuous_interval_seconds
           .unwrap_or(DEFAULT_CONTINUOUS_INTERVAL_SECONDS),
       )),
-      continuous_hotkey: request
-        .continuous_hotkey
-        .unwrap_or_else(|| DEFAULT_HOTKEY.to_string()),
+      continuous_hotkey: sanitize_hotkey(request.continuous_hotkey.as_deref()),
     }
   }
 }
 
 fn clamp_seconds(value: u64) -> u64 {
   value.clamp(MIN_INTERVAL_SECONDS, MAX_INTERVAL_SECONDS)
+}
+
+fn sanitize_hotkey(value: Option<&str>) -> String {
+  value
+    .filter(|hotkey| SUPPORTED_HOTKEYS.contains(hotkey))
+    .unwrap_or(DEFAULT_HOTKEY)
+    .to_string()
 }
 
 fn run_worker(stop: Arc<AtomicBool>, config: WorkerConfig, runtime: Arc<PreventSleepRuntime>) {
@@ -614,8 +620,8 @@ fn now_isoish() -> String {
 #[cfg(test)]
 mod tests {
   use super::{
-    hotkey_pressed, point_moved_from_anchor, PreventSleepClickMode, PreventSleepManager,
-    PreventSleepRequest, WorkerConfig, DEFAULT_HOTKEY,
+    hotkey_pressed, point_moved_from_anchor, sanitize_hotkey, PreventSleepClickMode,
+    PreventSleepManager, PreventSleepRequest, WorkerConfig, DEFAULT_HOTKEY,
   };
   use windows_sys::Win32::Foundation::POINT;
   use std::time::Duration;
@@ -650,6 +656,27 @@ mod tests {
     });
 
     assert_eq!(config.continuous_hotkey, DEFAULT_HOTKEY);
+  }
+
+  #[test]
+  fn unsupported_hotkey_defaults_to_pgdn() {
+    let config = WorkerConfig::from_request(PreventSleepRequest {
+      enabled: true,
+      click_mode: Some(PreventSleepClickMode::Continuous),
+      idle_activation_seconds: None,
+      idle_repeat_seconds: None,
+      continuous_interval_seconds: None,
+      continuous_hotkey: Some("Shift".into()),
+    });
+
+    assert_eq!(config.continuous_hotkey, DEFAULT_HOTKEY);
+  }
+
+  #[test]
+  fn sanitize_hotkey_keeps_supported_values() {
+    assert_eq!(sanitize_hotkey(Some("F9")), "F9");
+    assert_eq!(sanitize_hotkey(Some("Invalid")), DEFAULT_HOTKEY);
+    assert_eq!(sanitize_hotkey(None), DEFAULT_HOTKEY);
   }
 
   #[test]

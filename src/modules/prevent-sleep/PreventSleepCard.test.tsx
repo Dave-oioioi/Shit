@@ -10,7 +10,7 @@ import { preventSleepSettings, preventSleepState } from "@/modules/prevent-sleep
 const invokeMock = vi.fn();
 const MODULE_TITLE = "\u9632\u6b62\u4f11\u7720";
 const TOGGLE_LABEL = "\u9632\u6b62\u4f11\u7720 \u5f00\u5173";
-const HOTKEY_LABEL = "\u8fde\u7eed\u70b9\u51fb\u5feb\u6377\u952e";
+const HOTKEY_LABEL = "\u9f20\u6807\u8fde\u70b9\u5feb\u6377\u952e";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invokeMock(...args),
@@ -83,6 +83,38 @@ function renderCard(overrides: Partial<Parameters<typeof PreventSleepCard>[0]> =
   );
 
   return { onPatchState };
+}
+
+function StatefulPreventSleepSettings(
+  props: Partial<Parameters<typeof PreventSleepSettings>[0]> & {
+    onChangeSpy: ReturnType<typeof vi.fn>;
+  },
+) {
+  const {
+    onChangeSpy,
+    settings: initialSettings,
+    onChange: _onChange,
+    ...overrides
+  } = props;
+  const [settings, setSettings] = useState({
+    ...preventSleepSettings,
+    ...initialSettings,
+  });
+
+  const onChange = (nextSettings: typeof settings) => {
+    onChangeSpy(nextSettings);
+    setSettings(nextSettings);
+  };
+
+  return (
+    <PreventSleepSettings
+      moduleId="prevent-sleep"
+      manifest={manifest}
+      {...overrides}
+      settings={settings}
+      onChange={onChange}
+    />
+  );
 }
 
 describe("PreventSleepCard", () => {
@@ -219,15 +251,70 @@ describe("PreventSleepSettings", () => {
       />,
     );
 
-    await user.selectOptions(screen.getByRole("combobox", { name: HOTKEY_LABEL }), "F9");
+    await user.click(screen.getByRole("button", { name: HOTKEY_LABEL }));
 
     expect(onChange).toHaveBeenLastCalledWith({
       clickMode: "continuous",
       idleActivationSeconds: 150,
       idleRepeatSeconds: 5,
       continuousIntervalSeconds: 1,
-      continuousHotkey: "F9",
+      continuousHotkey: "PgUp",
     });
+  });
+
+  it("falls back to the default hotkey when persisted data is unsupported", () => {
+    render(
+      <PreventSleepSettings
+        moduleId="prevent-sleep"
+        manifest={manifest}
+        settings={{
+          clickMode: "continuous",
+          idleActivationSeconds: 150,
+          idleRepeatSeconds: 5,
+          continuousIntervalSeconds: 1,
+          continuousHotkey: "Shift",
+        }}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: HOTKEY_LABEL })).toHaveTextContent("PgDn");
+  });
+
+  it("switches to the matching settings block when a mode card is clicked", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+
+    render(
+      <StatefulPreventSleepSettings
+        settings={{
+          clickMode: "idle-keepalive",
+          idleActivationSeconds: 150,
+          idleRepeatSeconds: 5,
+          continuousIntervalSeconds: 1,
+          continuousHotkey: "PgDn",
+        }}
+        onChangeSpy={onChange}
+      />,
+    );
+
+    expect(screen.getByRole("tab", { name: /空闲保活/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("当前模式")).toBeInTheDocument();
+    expect(screen.getByRole("spinbutton", { name: "多久无操作后激活" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: /鼠标连点/ }));
+
+    expect(onChange).toHaveBeenLastCalledWith({
+      clickMode: "continuous",
+      idleActivationSeconds: 150,
+      idleRepeatSeconds: 5,
+      continuousIntervalSeconds: 1,
+      continuousHotkey: "PgDn",
+    });
+
+    expect(screen.getByRole("tab", { name: /鼠标连点/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("当前模式")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: HOTKEY_LABEL })).toBeInTheDocument();
   });
 
   it("locks every setting control when the card is already enabled", () => {
@@ -247,8 +334,8 @@ describe("PreventSleepSettings", () => {
       />,
     );
 
-    expect(screen.getAllByRole("button").every((element) => (element as HTMLButtonElement).disabled)).toBe(true);
+    expect(screen.getAllByRole("tab").every((element) => (element as HTMLButtonElement).disabled)).toBe(true);
     expect(screen.getAllByRole("spinbutton").every((element) => (element as HTMLInputElement).disabled)).toBe(true);
-    expect((screen.getByRole("combobox", { name: HOTKEY_LABEL }) as HTMLSelectElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: HOTKEY_LABEL }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

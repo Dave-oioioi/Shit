@@ -1,6 +1,8 @@
 import type { ChangeEvent } from "react";
 import type { ModuleSettingsProps } from "@/app/registry/moduleTypes";
-import { SettingsSection } from "@/app/ui/SettingsSection";
+import { SettingsChoiceCard } from "@/app/ui/SettingsChoiceCard";
+import { SettingsStatusPill } from "@/app/ui/SettingsStatusPill";
+import { SettingsValueButton } from "@/app/ui/SettingsValueButton";
 
 type PreventSleepSettingsModel = {
   clickMode: "idle-keepalive" | "continuous";
@@ -20,11 +22,25 @@ function clampSeconds(value: number, fallback: number) {
   return Math.max(1, Math.min(3600, Math.round(value)));
 }
 
+function normalizeHotkey(current: string) {
+  const supportedHotkey = HOTKEY_OPTIONS.find((hotkey) => hotkey === current);
+  return supportedHotkey ?? HOTKEY_OPTIONS[0];
+}
+
+function nextHotkey(current: string) {
+  const currentIndex = HOTKEY_OPTIONS.indexOf(normalizeHotkey(current));
+  return HOTKEY_OPTIONS[(currentIndex + 1) % HOTKEY_OPTIONS.length];
+}
+
 export function PreventSleepSettings({
   settings,
   disabled = false,
   onChange,
 }: ModuleSettingsProps<PreventSleepSettingsModel>) {
+  const isIdleKeepalive = settings.clickMode === "idle-keepalive";
+  const currentModeName = isIdleKeepalive ? "空闲保活" : "鼠标连点";
+  const currentHotkey = normalizeHotkey(settings.continuousHotkey);
+
   const updateField = <K extends keyof PreventSleepSettingsModel>(
     key: K,
     value: PreventSleepSettingsModel[K],
@@ -47,105 +63,98 @@ export function PreventSleepSettings({
     };
 
   return (
-    <>
-      <SettingsSection
-        title="模式"
-        description={
-          disabled
-            ? "模块运行中，先关闭卡片总开关后再调整。"
-            : settings.clickMode === "continuous"
-              ? "开启后先待命，再按快捷键开始或停止连点。"
-              : "开启后按无操作时间自动进入角落双击保活。"
-        }
-      >
-        <div className="prevent-sleep-mode">
-          <button
-            type="button"
-            className="prevent-sleep-mode__chip"
-            data-selected={settings.clickMode === "idle-keepalive"}
+    <div className="settings-flow">
+      <section className="settings-section settings-flow__section settings-flow__section--picker">
+        <div className="settings-choice-grid" role="tablist" aria-label="防止休眠运行方式">
+          <SettingsChoiceCard
+            title="空闲保活"
+            description="检测到你一段时间没有操作后，自动进入保活。"
+            meta="自动触发"
+            statusLabel={isIdleKeepalive ? "当前使用" : "点击切换"}
+            selected={isIdleKeepalive}
             disabled={disabled}
+            controlsId="prevent-sleep-active-settings"
             onClick={() => updateField("clickMode", "idle-keepalive")}
-          >
-            空闲保活
-          </button>
-          <button
-            type="button"
-            className="prevent-sleep-mode__chip"
-            data-selected={settings.clickMode === "continuous"}
+          />
+          <SettingsChoiceCard
+            title="鼠标连点"
+            description="通过快捷键主动开始或停止保活，更适合需要手动控制的场景。"
+            meta="快捷键控制"
+            statusLabel={isIdleKeepalive ? "点击切换" : "当前使用"}
+            selected={!isIdleKeepalive}
             disabled={disabled}
+            controlsId="prevent-sleep-active-settings"
             onClick={() => updateField("clickMode", "continuous")}
-          >
-            连续点击
-          </button>
+          />
         </div>
-      </SettingsSection>
+      </section>
 
-      <SettingsSection title="空闲保活" description="只在模式为“空闲保活”时生效。">
+      <section
+        id="prevent-sleep-active-settings"
+        className="settings-section settings-flow__section settings-flow__section--active"
+      >
+        <SettingsStatusPill label="当前模式" value={currentModeName} />
+
         <div className="prevent-sleep-fields">
-          <label className="prevent-sleep-field">
-            <span>多久无操作后激活</span>
-            <input
-              type="number"
-              min={1}
-              step={1}
-              disabled={disabled}
-              value={settings.idleActivationSeconds}
-              onChange={updateSeconds("idleActivationSeconds")}
-              aria-label="多久无操作后激活"
-            />
-            <em>秒</em>
-          </label>
+          {isIdleKeepalive ? (
+            <>
+              <label className="prevent-sleep-field">
+                <span>多久无操作后激活</span>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  disabled={disabled}
+                  value={settings.idleActivationSeconds}
+                  onChange={updateSeconds("idleActivationSeconds")}
+                  aria-label="多久无操作后激活"
+                />
+                <em>秒</em>
+              </label>
 
-          <label className="prevent-sleep-field">
-            <span>激活后每隔多久角落双击</span>
-            <input
-              type="number"
-              min={1}
-              step={1}
-              disabled={disabled}
-              value={settings.idleRepeatSeconds}
-              onChange={updateSeconds("idleRepeatSeconds")}
-              aria-label="激活后每隔多久角落双击"
-            />
-            <em>秒</em>
-          </label>
+              <label className="prevent-sleep-field">
+                <span>激活后每隔多久执行一次</span>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  disabled={disabled}
+                  value={settings.idleRepeatSeconds}
+                  onChange={updateSeconds("idleRepeatSeconds")}
+                  aria-label="激活后每隔多久执行一次"
+                />
+                <em>秒</em>
+              </label>
+            </>
+          ) : (
+            <>
+              <SettingsValueButton
+                label="鼠标连点快捷键"
+                value={currentHotkey}
+                unit="键"
+                hint={`点击切换 ${HOTKEY_OPTIONS.join(" / ")}`}
+                disabled={disabled}
+                ariaLabel="鼠标连点快捷键"
+                onClick={() => updateField("continuousHotkey", nextHotkey(currentHotkey))}
+              />
+
+              <label className="prevent-sleep-field">
+                <span>鼠标连点触发间隔</span>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  disabled={disabled}
+                  value={settings.continuousIntervalSeconds}
+                  onChange={updateSeconds("continuousIntervalSeconds")}
+                  aria-label="鼠标连点触发间隔"
+                />
+                <em>秒</em>
+              </label>
+            </>
+          )}
         </div>
-      </SettingsSection>
-
-      <SettingsSection title="连续点击" description="只在模式为“连续点击”时生效。">
-        <div className="prevent-sleep-fields">
-          <label className="prevent-sleep-field">
-            <span>快捷键</span>
-            <select
-              disabled={disabled}
-              value={settings.continuousHotkey}
-              onChange={(event) => updateField("continuousHotkey", event.target.value)}
-              aria-label="连续点击快捷键"
-            >
-              {HOTKEY_OPTIONS.map((hotkey) => (
-                <option key={hotkey} value={hotkey}>
-                  {hotkey}
-                </option>
-              ))}
-            </select>
-            <em>键</em>
-          </label>
-
-          <label className="prevent-sleep-field">
-            <span>连点间隔</span>
-            <input
-              type="number"
-              min={1}
-              step={1}
-              disabled={disabled}
-              value={settings.continuousIntervalSeconds}
-              onChange={updateSeconds("continuousIntervalSeconds")}
-              aria-label="连点间隔"
-            />
-            <em>秒</em>
-          </label>
-        </div>
-      </SettingsSection>
-    </>
+      </section>
+    </div>
   );
 }

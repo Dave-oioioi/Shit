@@ -15,9 +15,9 @@ const PREVENT_SLEEP = "\u9632\u6b62\u4f11\u7720";
 const SETTINGS = "\u8bbe\u7f6e";
 const MAIN_STALL = "\u4e3b\u5751\u4f4d";
 const EXPAND_SETTINGS = "\u5c55\u5f00\u8bbe\u7f6e";
-const SCENE_CONFIG = "\u573a\u666f\u914d\u7f6e";
-const DEFAULT_SCENE = "\u9ed8\u8ba4\u573a\u666f";
-const MODULE_BEHAVIOR = "\u6a21\u5757\u884c\u4e3a";
+const CURRENT_SOURCE = "\u5f53\u524d\u6765\u6e90";
+const AUTO_DUCK = "\u81ea\u52a8\u964d\u4f4e";
+const BLOCK_LIST = "\u5c4f\u853d";
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(async (eventName: string, handler: (event: { payload?: unknown }) => void) => {
@@ -62,9 +62,9 @@ describe("AppShell", () => {
 
     await user.click(screen.getAllByRole("button", { name: EXPAND_SETTINGS })[0]!);
 
-    expect(screen.getByText(SCENE_CONFIG)).toBeInTheDocument();
-    expect(screen.getByText(DEFAULT_SCENE)).toBeInTheDocument();
-    expect(screen.getByText(MODULE_BEHAVIOR)).toBeInTheDocument();
+    expect(screen.getByText(CURRENT_SOURCE)).toBeInTheDocument();
+    expect(screen.getByText(AUTO_DUCK)).toBeInTheDocument();
+    expect(screen.getByText(BLOCK_LIST)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: `${AUTO_MIXING} \u5f00\u5173` })).toBeInTheDocument();
   });
 
