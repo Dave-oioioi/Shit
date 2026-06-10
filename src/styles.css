@@ -2534,120 +2534,42 @@ button {
   max-width: 36ch;
 }
 
-.auto-mixing-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
-  gap: 10px;
-  margin-top: 12px;
-}
-
-.auto-mixing-source-list {
-  display: grid;
-  gap: 8px;
-}
-
-.auto-mixing-source-item {
+.auto-mixing-panel-heading {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
-  width: 100%;
-  padding: 10px;
-  border: 1px solid rgb(255 255 255 / 0.05);
-  border-radius: calc(var(--radius-sm) - 1px);
-  background: rgb(255 255 255 / 0.024);
-  text-align: left;
-  transition:
-    transform 180ms ease,
-    border-color 180ms ease,
-    background 180ms ease,
-    box-shadow 180ms ease;
 }
 
-.auto-mixing-source-item:hover {
-  transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--card-accent, #58c6ff) 26%, var(--line));
-}
-
-.auto-mixing-source-item[data-selected="true"] {
-  border-color: color-mix(in srgb, var(--card-accent, #58c6ff) 64%, white 10%);
-  background:
-    linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--card-accent, #58c6ff) 18%, transparent),
-      rgb(255 255 255 / 0.06)
-    ),
-    rgb(255 255 255 / 0.03);
-  box-shadow: 0 0 16px color-mix(in srgb, var(--card-accent, #58c6ff) 18%, transparent);
-}
-
-.auto-mixing-source-item__copy {
+.auto-mixing-panel-heading div {
   display: grid;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
 }
 
-.auto-mixing-source-item__copy strong {
+.auto-mixing-panel-heading h3 {
+  margin: 0;
   color: var(--text);
-  font-size: 12px;
-  line-height: 1.35;
+  font-size: 14px;
+  line-height: 1.25;
 }
 
-.auto-mixing-source-item__copy span {
+.auto-mixing-panel-heading span,
+.auto-mixing-panel-heading em {
   color: var(--muted);
-  font-size: 10px;
-  line-height: 1.4;
-}
-
-.auto-mixing-source-item__meta {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-}
-
-.auto-mixing-source-item__meta em {
-  padding: 4px 8px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--muted-strong);
   font-size: 10px;
   font-style: normal;
-}
-
-.auto-mixing-selection-card {
-  display: grid;
-  align-content: start;
-  gap: 10px;
-  padding: 10px;
-  border: 1px solid rgb(255 255 255 / 0.05);
-  border-radius: calc(var(--radius-sm) - 1px);
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / 0.04), transparent 42%),
-    rgb(255 255 255 / 0.02);
-}
-
-.auto-mixing-selection-card .settings-status-pill {
-  margin-top: 0;
-}
-
-.auto-mixing-selection-card__summary {
-  margin: 0;
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 700;
   line-height: 1.4;
 }
 
-.auto-mixing-selection-card__hint {
-  margin: 0;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.5;
-}
-
-.auto-mixing-selection-card__actions {
-  display: grid;
-  gap: 8px;
+.auto-mixing-panel-heading em {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--card-accent, #58c6ff) 22%, var(--line));
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.035);
+  color: var(--muted-strong);
+  font-weight: 700;
 }
 
 .auto-mixing-rule-grid {
@@ -2660,7 +2582,15 @@ button {
 .auto-mixing-rule-panel {
   display: grid;
   align-content: start;
-  gap: 10px;
+  gap: 8px;
+  min-width: 0;
+}
+
+.auto-mixing-rule-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 18px;
 }
 
 .auto-mixing-rule-panel__header strong {
@@ -2669,9 +2599,17 @@ button {
   line-height: 1.35;
 }
 
-.auto-mixing-list {
+.auto-mixing-list,
+.auto-mixing-source-list {
   display: grid;
   gap: 8px;
+}
+
+.auto-mixing-section--add .auto-mixing-source-list {
+  margin-top: 12px;
+  max-height: 230px;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .auto-mixing-empty {
@@ -2691,26 +2629,56 @@ button {
   color: #ffd0c5;
 }
 
-.auto-mixing-target {
+.auto-mixing-target,
+.auto-mixing-source-item {
   display: grid;
   gap: 10px;
   padding: 10px;
-  border: 1px solid rgb(255 255 255 / 0.05);
+  border: 1px solid rgb(255 255 255 / 0.055);
   border-radius: calc(var(--radius-sm) - 1px);
-  background: rgb(255 255 255 / 0.024);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.035), transparent 48%),
+    rgb(255 255 255 / 0.024);
+  transition:
+    border-color 180ms ease,
+    background 180ms ease,
+    box-shadow 180ms ease;
 }
 
+.auto-mixing-section--selected .auto-mixing-target {
+  border-color: color-mix(in srgb, var(--card-accent, #58c6ff) 22%, rgb(255 255 255 / 0.055));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--card-accent, #58c6ff) 9%, transparent), transparent 62%),
+    rgb(255 255 255 / 0.028);
+}
+
+.auto-mixing-source-item {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.auto-mixing-source-item:hover {
+  border-color: color-mix(in srgb, var(--card-accent, #58c6ff) 28%, var(--line));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--card-accent, #58c6ff) 10%, transparent), transparent 62%),
+    rgb(255 255 255 / 0.032);
+}
+
+.auto-mixing-source-item__copy,
 .auto-mixing-target__copy {
   display: grid;
   gap: 4px;
+  min-width: 0;
 }
 
+.auto-mixing-source-item__copy strong,
 .auto-mixing-target__copy strong {
   color: var(--text);
   font-size: 12px;
   line-height: 1.35;
 }
 
+.auto-mixing-source-item__copy span,
 .auto-mixing-target__copy span,
 .auto-mixing-target__copy em {
   color: var(--muted);
@@ -2719,10 +2687,30 @@ button {
   font-style: normal;
 }
 
-.auto-mixing-target__actions {
+.auto-mixing-source-item__meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.auto-mixing-source-item__meta em {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted-strong);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.auto-mixing-target__actions,
+.auto-mixing-source-item__actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.auto-mixing-source-item__actions {
+  grid-column: 1 / -1;
 }
 
 .auto-mixing-action {
@@ -2789,7 +2777,6 @@ button {
 }
 
 @media (max-width: 420px) {
-  .auto-mixing-layout,
   .auto-mixing-rule-grid,
   .auto-mixing-diagnostics {
     grid-template-columns: minmax(0, 1fr);

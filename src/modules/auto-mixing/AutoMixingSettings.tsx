@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { ModuleSettingsProps } from "@/app/registry/moduleTypes";
-import { SettingsStatusPill } from "@/app/ui/SettingsStatusPill";
 import {
   autoMixingSettingsEqual,
   normalizeAutoMixingSettings,
@@ -22,6 +21,8 @@ type AutoMixingDiagnosticSession = {
   displayName: string;
   processId?: number;
   active: boolean;
+  audible: boolean;
+  peakValue: number;
   currentVolume: number;
 };
 
@@ -129,7 +130,7 @@ function mergeRuleOnlyTargets(
 
 function describeTarget(target: AutoMixingTarget) {
   if (target.hasAudioSession) {
-    return "当前正在系统音量合成器中出声";
+    return "当前有音频会话，是否正在出声以诊断里的 peak 为准";
   }
 
   if (target.isRunning) {
@@ -141,41 +142,49 @@ function describeTarget(target: AutoMixingTarget) {
 
 function SourceList({
   targets,
-  selectedExecutable,
-  onSelect,
+  onMoveToSelected,
+  onMoveToBlocked,
 }: {
   targets: AutoMixingTarget[];
-  selectedExecutable: string | null;
-  onSelect: (executableName: string) => void;
+  onMoveToSelected: (executableName: string) => void;
+  onMoveToBlocked: (executableName: string) => void;
 }) {
   return (
-    <div className="auto-mixing-source-list" role="listbox" aria-label="可选择的应用">
+    <div className="auto-mixing-source-list" role="list" aria-label="可添加的应用">
       {targets.length === 0 ? (
-        <div className="auto-mixing-empty">当前没有可选择的应用。</div>
+        <div className="auto-mixing-empty">当前没有新的可添加应用。</div>
       ) : (
-        targets.map((target) => {
-          const selected = selectedExecutable === target.executableName;
-
-          return (
-            <button
-              key={target.executableName}
-              type="button"
-              role="option"
-              aria-selected={selected}
-              className="auto-mixing-source-item"
-              data-selected={selected}
-              onClick={() => onSelect(target.executableName)}
-            >
-              <span className="auto-mixing-source-item__copy">
-                <strong>{targetLabel(target)}</strong>
-                <span>{target.executableName}</span>
-              </span>
-              <span className="auto-mixing-source-item__meta">
-                <em>{target.hasAudioSession ? "有音频" : "未出声"}</em>
-              </span>
-            </button>
-          );
-        })
+        targets.map((target) => (
+          <div
+            key={target.executableName}
+            className="auto-mixing-source-item"
+            role="listitem"
+          >
+            <div className="auto-mixing-source-item__copy">
+              <strong>{targetLabel(target)}</strong>
+              <span>{target.executableName}</span>
+            </div>
+            <div className="auto-mixing-source-item__meta">
+              <em>{target.hasAudioSession ? "有会话" : "未出声"}</em>
+            </div>
+            <div className="auto-mixing-source-item__actions">
+              <button
+                type="button"
+                className="auto-mixing-action auto-mixing-action--primary"
+                onClick={() => onMoveToSelected(target.executableName)}
+              >
+                设为BGM目标
+              </button>
+              <button
+                type="button"
+                className="auto-mixing-action"
+                onClick={() => onMoveToBlocked(target.executableName)}
+              >
+                忽略此声音
+              </button>
+            </div>
+          </div>
+        ))
       )}
     </div>
   );
@@ -185,7 +194,6 @@ function RuleList({
   title,
   emptyLabel,
   entries,
-  disabled,
   onMoveToSelected,
   onMoveToBlocked,
   onRemove,
@@ -193,7 +201,6 @@ function RuleList({
   title: string;
   emptyLabel: string;
   entries: AutoMixingTarget[];
-  disabled: boolean;
   onMoveToSelected: (executableName: string) => void;
   onMoveToBlocked: (executableName: string) => void;
   onRemove: (executableName: string) => void;
@@ -218,7 +225,6 @@ function RuleList({
                 <button
                   type="button"
                   className="auto-mixing-action auto-mixing-action--primary"
-                  disabled={disabled}
                   onClick={() => onMoveToSelected(target.executableName)}
                 >
                   设为BGM目标
@@ -226,7 +232,6 @@ function RuleList({
                 <button
                   type="button"
                   className="auto-mixing-action"
-                  disabled={disabled}
                   onClick={() => onMoveToBlocked(target.executableName)}
                 >
                   忽略此声音
@@ -234,7 +239,6 @@ function RuleList({
                 <button
                   type="button"
                   className="auto-mixing-action auto-mixing-action--quiet"
-                  disabled={disabled}
                   onClick={() => onRemove(target.executableName)}
                 >
                   移除
@@ -250,7 +254,6 @@ function RuleList({
 
 export function AutoMixingSettings({
   settings,
-  disabled = false,
   onChange,
 }: ModuleSettingsProps<AutoMixingSettings>) {
   const normalizedSettings = normalizeAutoMixingSettings(settings);
@@ -258,7 +261,6 @@ export function AutoMixingSettings({
   const [duckedSessions, setDuckedSessions] = useState<AutoMixingDuckedSession[]>([]);
   const [cachedSessions, setCachedSessions] = useState<Record<string, CachedSession>>({});
   const [listError, setListError] = useState<string | null>(null);
-  const [selectedExecutable, setSelectedExecutable] = useState<string | null>(null);
   const [diagnosticsExpanded, setDiagnosticsExpanded] = useState(false);
 
   useEffect(() => {
@@ -322,15 +324,20 @@ export function AutoMixingSettings({
   }, []);
 
   const targets = useMemo<AutoMixingTarget[]>(
-    () =>
-      Object.values(cachedSessions).map((session) => ({
+    () => {
+      const currentSessionKeys = new Set(
+        currentSessions.map((session) => session.sessionKey),
+      );
+
+      return Object.values(cachedSessions).map((session) => ({
         executableName: session.executableName,
         displayName: session.displayName,
         processId: session.processId,
-        hasAudioSession: session.active,
+        hasAudioSession: currentSessionKeys.has(session.sessionKey),
         isRunning: true,
-      })),
-    [cachedSessions],
+      }));
+    },
+    [cachedSessions, currentSessions],
   );
 
   const mixerTargets = useMemo(() => {
@@ -349,25 +356,6 @@ export function AutoMixingSettings({
         left.executableName.localeCompare(right.executableName);
     });
   }, [normalizedSettings, targets]);
-
-  useEffect(() => {
-    if (mixerTargets.length === 0) {
-      setSelectedExecutable(null);
-      return;
-    }
-
-    const stillExists = mixerTargets.some(
-      (target) => target.executableName === selectedExecutable,
-    );
-    if (!stillExists) {
-      setSelectedExecutable(mixerTargets[0]!.executableName);
-    }
-  }, [mixerTargets, selectedExecutable]);
-
-  const activeTarget =
-    mixerTargets.find((target) => target.executableName === selectedExecutable) ??
-    allTargets.find((target) => target.executableName === selectedExecutable) ??
-    null;
 
   const selectedTargets = useMemo(
     () =>
@@ -399,107 +387,52 @@ export function AutoMixingSettings({
     [allTargets, normalizedSettings.excludedExecutables],
   );
 
-  const updateSettings = (nextSettings: AutoMixingSettings) => {
-    if (disabled) {
-      return;
-    }
+  const configuredExecutables = useMemo(
+    () =>
+      new Set([
+        ...normalizedSettings.anchorExecutables,
+        ...normalizedSettings.excludedExecutables,
+      ]),
+    [normalizedSettings.anchorExecutables, normalizedSettings.excludedExecutables],
+  );
 
+  const availableTargets = useMemo(
+    () =>
+      mixerTargets.filter(
+        (target) => !configuredExecutables.has(target.executableName),
+      ),
+    [configuredExecutables, mixerTargets],
+  );
+
+  const updateSettings = (nextSettings: AutoMixingSettings) => {
     onChange(nextSettings);
   };
 
-  const selectionState = activeTarget
-    ? normalizedSettings.excludedExecutables.includes(activeTarget.executableName)
-      ? "已忽略触发"
-      : normalizedSettings.anchorExecutables.includes(activeTarget.executableName)
-        ? "已设为BGM目标"
-        : "尚未加入规则"
-    : "先选一个应用";
+  const selectedCount =
+    normalizedSettings.anchorExecutables.length +
+    normalizedSettings.excludedExecutables.length;
 
   return (
     <div className="settings-flow">
       <section
         id="auto-mixing-source-area"
-        className="settings-section settings-flow__section settings-flow__section--active auto-mixing-section"
+        className="settings-section settings-flow__section auto-mixing-section auto-mixing-section--selected"
       >
-        <div className="settings-section__header">
-          <h3>系统音量合成器</h3>
-          <p>这里直接读取 Windows 音量合成器里当前有音频会话的应用。先选一个应用，把它设为会被自动压低的 BGM；其它应用出声时就会触发压低。</p>
+        <div className="auto-mixing-panel-heading">
+          <div>
+            <h3>已选择应用</h3>
+            <span>{selectedCount} 个规则</span>
+          </div>
+          <em>系统音量合成器</em>
         </div>
-
-        <SettingsStatusPill
-          label="读取来源"
-          value="系统音量合成器"
-        />
 
         {listError ? <div className="auto-mixing-empty auto-mixing-empty--error">{listError}</div> : null}
-
-        <div className="auto-mixing-layout">
-          <SourceList
-            targets={mixerTargets}
-            selectedExecutable={selectedExecutable}
-            onSelect={setSelectedExecutable}
-          />
-
-          <div className="auto-mixing-selection-card">
-            <SettingsStatusPill
-              label="当前选择"
-              value={activeTarget ? targetLabel(activeTarget) : "未选择"}
-            />
-            <p className="auto-mixing-selection-card__summary">{selectionState}</p>
-            <p className="auto-mixing-selection-card__hint">
-              {activeTarget ? describeTarget(activeTarget) : "从左侧来源列表中选择一个应用。"}
-            </p>
-            <div className="auto-mixing-selection-card__actions">
-              <button
-                type="button"
-                className="auto-mixing-action auto-mixing-action--primary"
-                disabled={disabled || !activeTarget}
-                onClick={() =>
-                  activeTarget &&
-                  updateSettings(withSelectedRule(normalizedSettings, activeTarget.executableName))
-                }
-              >
-                设为BGM目标
-              </button>
-              <button
-                type="button"
-                className="auto-mixing-action"
-                disabled={disabled || !activeTarget}
-                onClick={() =>
-                  activeTarget &&
-                  updateSettings(withBlockedRule(normalizedSettings, activeTarget.executableName))
-                }
-              >
-                忽略此声音
-              </button>
-              <button
-                type="button"
-                className="auto-mixing-action auto-mixing-action--quiet"
-                disabled={disabled || !activeTarget}
-                onClick={() =>
-                  activeTarget &&
-                  updateSettings(withoutRule(normalizedSettings, activeTarget.executableName))
-                }
-              >
-                从规则中移除
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="settings-section auto-mixing-section">
-        <div className="settings-section__header">
-          <h3>已选规则</h3>
-          <p>BGM 目标会在其它应用出声时被自动压低；被忽略的应用即使出声，也不会触发压低。</p>
-        </div>
 
         <div className="auto-mixing-rule-grid">
           <RuleList
             title="BGM目标"
             emptyLabel="还没有会被自动压低的 BGM 应用。"
             entries={selectedTargets}
-            disabled={disabled}
             onMoveToSelected={(entry) =>
               updateSettings(withSelectedRule(normalizedSettings, entry))
             }
@@ -513,7 +446,6 @@ export function AutoMixingSettings({
             title="忽略触发"
             emptyLabel="还没有被忽略的触发应用。"
             entries={blockedTargets}
-            disabled={disabled}
             onMoveToSelected={(entry) =>
               updateSettings(withSelectedRule(normalizedSettings, entry))
             }
@@ -523,6 +455,26 @@ export function AutoMixingSettings({
             onRemove={(entry) => updateSettings(withoutRule(normalizedSettings, entry))}
           />
         </div>
+      </section>
+
+      <section className="settings-section auto-mixing-section auto-mixing-section--add">
+        <div className="auto-mixing-panel-heading">
+          <div>
+            <h3>添加应用</h3>
+            <span>{availableTargets.length} 个可添加</span>
+          </div>
+          <em>实时会话</em>
+        </div>
+
+        <SourceList
+          targets={availableTargets}
+          onMoveToSelected={(entry) =>
+            updateSettings(withSelectedRule(normalizedSettings, entry))
+          }
+          onMoveToBlocked={(entry) =>
+            updateSettings(withBlockedRule(normalizedSettings, entry))
+          }
+        />
       </section>
 
       <section className="settings-section auto-mixing-section">
@@ -561,7 +513,7 @@ export function AutoMixingSettings({
                         <strong>{session.displayName || session.executableName}</strong>
                         <span>{session.executableName}</span>
                         <em>
-                          {session.active ? "当前出声" : "当前未出声"} · 音量 {Math.round(session.currentVolume * 100)}%
+                          {session.audible ? "当前出声" : "当前未出声"} · state {session.active ? "Active" : "Inactive"} · peak {Math.round(session.peakValue * 1000) / 10}% · 音量 {Math.round(session.currentVolume * 100)}%
                         </em>
                       </div>
                     </div>

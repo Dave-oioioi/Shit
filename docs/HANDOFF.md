@@ -1,5 +1,12 @@
 # Handoff
 
+## Latest Handoff
+
+- `docs/handoff-auto-mixing-peak-trigger.md`
+  - Current `auto-mixing` investigation and implementation handoff.
+  - Covers the switch from `AudioSessionStateActive` trigger detection to peak-based `IAudioMeterInformation::GetPeakValue()` audibility checks.
+  - Use this first when continuing `auto-mixing` work on another device.
+
 ## Current Goal
 
 SHIT VAULT main shell is complete enough to protect. The first real module, `prevent-sleep`, is now landed end-to-end, functionally frozen, and the project has also been packaged for desktop distribution with a GitHub Release.

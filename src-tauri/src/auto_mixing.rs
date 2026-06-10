@@ -13,9 +13,18 @@ use windows::{
   Win32::{
     Foundation::CloseHandle,
     Media::Audio::{
-      eMultimedia, eRender, AudioSessionStateActive, IAudioSessionControl,
-      IAudioSessionControl2, IAudioSessionEnumerator, IAudioSessionManager2, IMMDevice,
-      IMMDeviceEnumerator, ISimpleAudioVolume, MMDeviceEnumerator,
+      eMultimedia,
+      eRender,
+      Endpoints::IAudioMeterInformation,
+      AudioSessionStateActive,
+      IAudioSessionControl,
+      IAudioSessionControl2,
+      IAudioSessionEnumerator,
+      IAudioSessionManager2,
+      IMMDevice,
+      IMMDeviceEnumerator,
+      ISimpleAudioVolume,
+      MMDeviceEnumerator,
     },
     System::{
       Com::{
@@ -39,6 +48,7 @@ const POLL_INTERVAL_MS: u64 = 40;
 const MAX_DUCKED_VOLUME_PERCENT: u8 = 100;
 const MIN_RESTORE_DURATION_MS: u64 = 0;
 const MAX_RESTORE_DURATION_MS: u64 = 10_000;
+const AUDIBLE_PEAK_THRESHOLD: f32 = 0.001;
 const VOLUME_EPSILON: f32 = 0.02;
 const MANUAL_OVERRIDE_EPSILON: f32 = 0.04;
 
@@ -102,6 +112,8 @@ pub struct AutoMixingDiagnosticSession {
   display_name: String,
   process_id: Option<u32>,
   active: bool,
+  audible: bool,
+  peak_value: f32,
   current_volume: f32,
 }
 
@@ -197,6 +209,8 @@ struct SessionSnapshot {
   display_name: String,
   process_id: u32,
   active: bool,
+  audible: bool,
+  peak_value: f32,
   volume: ISimpleAudioVolume,
   current_volume: f32,
 }
@@ -481,7 +495,7 @@ fn apply_ducking_round(
   _stop: &AtomicBool,
 ) {
   let now = Instant::now();
-  let active_trigger_executables = compute_active_trigger_executables(
+  let audible_trigger_executables = compute_audible_trigger_executables(
     sessions,
     &config.anchor_executables,
     &config.excluded_executables,
@@ -495,7 +509,7 @@ fn apply_ducking_round(
     let should_duck = should_duck_session(
       &session.executable_name,
       session.active,
-      &active_trigger_executables,
+      &audible_trigger_executables,
       &config.anchor_executables,
       &config.excluded_executables,
     );
@@ -570,7 +584,7 @@ fn apply_ducking_round(
       let should_remain_ducked = should_duck_session(
         &tracked.executable_name,
         active_session.active,
-        &active_trigger_executables,
+        &audible_trigger_executables,
         &config.anchor_executables,
         &config.excluded_executables,
       );
@@ -662,6 +676,8 @@ fn session_to_diagnostic_session(session: &SessionSnapshot) -> AutoMixingDiagnos
     display_name: session.display_name.clone(),
     process_id: Some(session.process_id),
     active: session.active,
+    audible: session.audible,
+    peak_value: session.peak_value,
     current_volume: session.current_volume,
   }
 }
@@ -693,30 +709,30 @@ fn restore_all_sessions(
   }
 }
 
-fn compute_active_trigger_executables(
+fn compute_audible_trigger_executables(
   sessions: &[SessionSnapshot],
   anchor_executables: &BTreeSet<String>,
   excluded_executables: &BTreeSet<String>,
 ) -> BTreeSet<String> {
-  compute_active_trigger_executables_from_iter(
+  compute_audible_trigger_executables_from_iter(
     sessions
       .iter()
-      .map(|session| (session.executable_name.as_str(), session.active)),
+      .map(|session| (session.executable_name.as_str(), session.audible)),
     anchor_executables,
     excluded_executables,
   )
 }
 
-fn compute_active_trigger_executables_from_iter<'a>(
+fn compute_audible_trigger_executables_from_iter<'a>(
   sessions: impl IntoIterator<Item = (&'a str, bool)>,
   anchor_executables: &BTreeSet<String>,
   excluded_executables: &BTreeSet<String>,
 ) -> BTreeSet<String> {
   sessions
     .into_iter()
-    .filter(|(executable_name, active)| {
+    .filter(|(executable_name, audible)| {
       let executable_name = executable_name.to_ascii_lowercase();
-      *active
+      *audible
         && !anchor_executables.contains(&executable_name)
         && !excluded_executables.contains(&executable_name)
     })
@@ -727,14 +743,18 @@ fn compute_active_trigger_executables_from_iter<'a>(
 fn should_duck_session(
   executable_name: &str,
   session_active: bool,
-  active_trigger_executables: &BTreeSet<String>,
+  audible_trigger_executables: &BTreeSet<String>,
   anchor_executables: &BTreeSet<String>,
   excluded_executables: &BTreeSet<String>,
 ) -> bool {
   session_active
-    && !active_trigger_executables.is_empty()
+    && !audible_trigger_executables.is_empty()
     && anchor_executables.contains(executable_name)
     && !excluded_executables.contains(executable_name)
+}
+
+fn is_session_audible(session_active: bool, peak_value: f32) -> bool {
+  session_active && peak_value >= AUDIBLE_PEAK_THRESHOLD
 }
 
 fn user_changed_ducked_volume(original: f32, expected: f32, current: f32) -> bool {
@@ -769,6 +789,11 @@ fn envelope_coefficient(duration: Duration) -> f32 {
 fn get_session_volume(volume: &ISimpleAudioVolume) -> Result<f32, String> {
   unsafe { volume.GetMasterVolume() }
     .map_err(|error| format!("ISimpleAudioVolume::GetMasterVolume failed: {error}"))
+}
+
+fn get_session_peak_value(meter: &IAudioMeterInformation) -> Result<f32, String> {
+  unsafe { meter.GetPeakValue() }
+    .map_err(|error| format!("IAudioMeterInformation::GetPeakValue failed: {error}"))
 }
 
 fn set_session_volume(volume: &ISimpleAudioVolume, next_volume: f32) -> Result<(), String> {
@@ -936,17 +961,24 @@ fn enumerate_session_at(
       .unwrap_or_else(|| display_name_from_executable(&executable_name));
   let state = unsafe { control.GetState() }
     .map_err(|error| format!("IAudioSessionControl::GetState failed: {error}"))?;
+  let active = state == AudioSessionStateActive;
   let volume: ISimpleAudioVolume = control
     .cast()
     .map_err(|error| format!("ISimpleAudioVolume cast failed: {error}"))?;
+  let meter: IAudioMeterInformation = control
+    .cast()
+    .map_err(|error| format!("IAudioMeterInformation cast failed: {error}"))?;
   let current_volume = get_session_volume(&volume)?;
+  let peak_value = get_session_peak_value(&meter)?;
 
   Ok(Some(SessionSnapshot {
     session_key,
     executable_name: executable_name.to_ascii_lowercase(),
     display_name,
     process_id,
-    active: state == AudioSessionStateActive,
+    active,
+    audible: is_session_audible(active, peak_value),
+    peak_value,
     volume,
     current_volume,
   }))
@@ -993,10 +1025,11 @@ fn sleep_until_stop(stop: &AtomicBool, duration: Duration) -> bool {
 #[cfg(test)]
 mod tests {
   use super::{
-    advance_envelope_volume, compute_active_trigger_executables_from_iter, envelope_coefficient,
-    normalize_restore_duration_ms, processes_by_id, sanitize_executables, should_duck_session,
-    user_changed_ducked_volume, AutoMixingRequest, ProcessSnapshot, WorkerConfig,
-    DEFAULT_ATTACK_DURATION_MS, DEFAULT_DUCKED_VOLUME_PERCENT, DEFAULT_RESTORE_DURATION_MS,
+    advance_envelope_volume, compute_audible_trigger_executables_from_iter,
+    envelope_coefficient, is_session_audible, normalize_restore_duration_ms, processes_by_id,
+    sanitize_executables, should_duck_session, user_changed_ducked_volume, AutoMixingRequest,
+    ProcessSnapshot, WorkerConfig, AUDIBLE_PEAK_THRESHOLD, DEFAULT_ATTACK_DURATION_MS,
+    DEFAULT_DUCKED_VOLUME_PERCENT, DEFAULT_RESTORE_DURATION_MS,
   };
   use std::{collections::BTreeSet, time::Duration};
 
@@ -1068,23 +1101,23 @@ mod tests {
   }
 
   #[test]
-  fn active_other_sessions_duck_selected_bgm_sessions() {
-    let active_triggers = BTreeSet::from(["chrome.exe".to_string()]);
+  fn audible_other_sessions_duck_selected_bgm_sessions() {
+    let audible_triggers = BTreeSet::from(["chrome.exe".to_string()]);
     let selected = BTreeSet::from(["spotify.exe".to_string()]);
     let blocked = BTreeSet::from(["discord.exe".to_string()]);
 
-    assert!(should_duck_session("spotify.exe", true, &active_triggers, &selected, &blocked));
-    assert!(!should_duck_session("chrome.exe", true, &active_triggers, &selected, &blocked));
-    assert!(!should_duck_session("discord.exe", true, &active_triggers, &selected, &blocked));
-    assert!(!should_duck_session("spotify.exe", false, &active_triggers, &selected, &blocked));
+    assert!(should_duck_session("spotify.exe", true, &audible_triggers, &selected, &blocked));
+    assert!(!should_duck_session("chrome.exe", true, &audible_triggers, &selected, &blocked));
+    assert!(!should_duck_session("discord.exe", true, &audible_triggers, &selected, &blocked));
+    assert!(!should_duck_session("spotify.exe", false, &audible_triggers, &selected, &blocked));
   }
 
   #[test]
-  fn active_trigger_executables_ignore_selected_and_excluded_sessions() {
+  fn audible_trigger_executables_ignore_selected_and_excluded_sessions() {
     let selected = BTreeSet::from(["spotify.exe".to_string(), "qqmusic.exe".to_string()]);
     let blocked = BTreeSet::from(["discord.exe".to_string()]);
 
-    let triggers = compute_active_trigger_executables_from_iter(
+    let triggers = compute_audible_trigger_executables_from_iter(
       [
         ("spotify.exe", true),
         ("qqmusic.exe", false),
@@ -1099,6 +1132,14 @@ mod tests {
     assert!(!triggers.contains("qqmusic.exe"));
     assert!(triggers.contains("chrome.exe"));
     assert!(!triggers.contains("discord.exe"));
+  }
+
+  #[test]
+  fn session_audibility_requires_active_state_and_peak_above_threshold() {
+    assert!(!is_session_audible(true, 0.0));
+    assert!(!is_session_audible(true, AUDIBLE_PEAK_THRESHOLD / 2.0));
+    assert!(!is_session_audible(false, 1.0));
+    assert!(is_session_audible(true, AUDIBLE_PEAK_THRESHOLD));
   }
 
   #[test]

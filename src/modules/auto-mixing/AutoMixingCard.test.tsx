@@ -219,6 +219,8 @@ describe("AutoMixingSettings", () => {
               displayName: "Spotify",
               processId: 101,
               active: true,
+              audible: true,
+              peakValue: 0.42,
               currentVolume: 0.65,
             },
             {
@@ -227,6 +229,8 @@ describe("AutoMixingSettings", () => {
               displayName: "Discord",
               processId: 202,
               active: true,
+              audible: true,
+              peakValue: 0.31,
               currentVolume: 0.55,
             },
             {
@@ -235,6 +239,8 @@ describe("AutoMixingSettings", () => {
               displayName: "foobar2000",
               processId: 303,
               active: false,
+              audible: false,
+              peakValue: 0,
               currentVolume: 0.4,
             },
           ],
@@ -253,15 +259,16 @@ describe("AutoMixingSettings", () => {
     });
   });
 
-  it("switches source view cards correctly", async () => {
+  it("shows selected-rule and add-app panels", async () => {
     render(<StatefulAutoMixingSettings onChangeSpy={vi.fn()} />);
 
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith("auto_mixing_diagnostics");
     });
 
-    expect(screen.getByRole("heading", { name: "系统音量合成器" })).toBeInTheDocument();
-    expect(screen.getAllByRole("option").length).toBe(3);
+    expect(screen.getByRole("heading", { name: "已选择应用" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "添加应用" })).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem").length).toBe(3);
   });
 
   it("adds an app as a bgm target rule", async () => {
@@ -275,12 +282,11 @@ describe("AutoMixingSettings", () => {
     });
 
     const spotifyEntry = screen
-      .getAllByRole("option")
+      .getAllByRole("listitem")
       .find((element) => element.textContent?.includes("spotify.exe"));
     expect(spotifyEntry).toBeTruthy();
 
-    await user.click(spotifyEntry!);
-    await user.click(screen.getByRole("button", { name: "设为BGM目标" }));
+    await user.click(within(spotifyEntry as HTMLElement).getByRole("button", { name: "设为BGM目标" }));
 
     expect(onChange).toHaveBeenLastCalledWith({
       anchorExecutables: ["spotify.exe"],
@@ -310,12 +316,6 @@ describe("AutoMixingSettings", () => {
       expect(screen.getAllByText("Spotify").length).toBeGreaterThan(0);
     });
 
-    const spotifyEntry = screen
-      .getAllByRole("option")
-      .find((element) => element.textContent?.includes("spotify.exe"));
-    expect(spotifyEntry).toBeTruthy();
-
-    await user.click(spotifyEntry!);
     const selectedRulePanel = screen.getByText("BGM目标").closest(".auto-mixing-rule-panel");
     expect(selectedRulePanel).toBeTruthy();
     await user.click(within(selectedRulePanel as HTMLElement).getByRole("button", { name: "忽略此声音" }));
@@ -328,7 +328,7 @@ describe("AutoMixingSettings", () => {
     });
   });
 
-  it("locks all action buttons while the card is enabled", async () => {
+  it("keeps rule editing available while the card is enabled", async () => {
     render(<AutoMixingSettings moduleId="auto-mixing" manifest={manifest} settings={autoMixingSettings} disabled onChange={vi.fn()} />);
 
     await waitFor(() => {
@@ -343,7 +343,7 @@ describe("AutoMixingSettings", () => {
             (element as HTMLButtonElement).textContent?.includes(label),
           ),
         )
-        .every((element) => (element as HTMLButtonElement).disabled),
+        .every((element) => !(element as HTMLButtonElement).disabled),
     ).toBe(true);
   });
 });
