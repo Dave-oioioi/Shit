@@ -1058,16 +1058,6 @@ button {
   box-shadow: var(--shadow-lg);
 }
 
-.vault-info-card::after {
-  position: absolute;
-  right: 18px;
-  bottom: 18px;
-  width: 118px;
-  height: 1px;
-  content: "";
-  background: linear-gradient(90deg, transparent, rgba(142, 214, 177, 0.26));
-}
-
 .vault-info-card__mark {
   display: grid;
   place-items: center;
@@ -1125,6 +1115,11 @@ button {
   grid-column: 1 / -1;
 }
 
+.vault-info-card__meta-plain {
+  display: grid;
+  align-items: center;
+}
+
 .vault-info-card__meta dt {
   margin: 0 0 5px;
   color: var(--muted);
@@ -1144,7 +1139,13 @@ button {
   white-space: nowrap;
 }
 
+.vault-info-card__meta-plain dd {
+  font-size: 14px;
+}
+
 .vault-info-card__meta a {
+  display: inline-block;
+  max-width: 100%;
   color: color-mix(in srgb, var(--success) 76%, #ffffff 14%);
   text-decoration: none;
 }
@@ -3138,6 +3139,7 @@ button {
 }
 
 .auto-mixing-settings-head,
+.auto-mixing-mix-panel,
 .auto-mixing-selected-panel,
 .auto-mixing-recommend-strip,
 .auto-mixing-nav-list,
@@ -3186,6 +3188,211 @@ button {
   font-style: normal;
   line-height: 1.25;
   text-align: right;
+}
+
+.auto-mixing-mix-panel {
+  display: grid;
+  gap: 6px;
+  padding: 0 8px 2px;
+}
+
+.auto-mixing-mix-panel__sliders {
+  display: grid;
+  gap: 4px;
+}
+
+.auto-mixing-slider-row {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-height: 26px;
+}
+
+.auto-mixing-slider-row__head {
+  min-width: 0;
+}
+
+.auto-mixing-slider-row__head strong {
+  display: block;
+  overflow: hidden;
+  color: var(--muted-strong);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auto-mixing-slider-row__control {
+  position: relative;
+  display: grid;
+  align-items: center;
+  min-width: 0;
+  min-height: 24px;
+}
+
+.auto-mixing-slider-row__track {
+  position: absolute;
+  right: 0;
+  left: 0;
+  top: 50%;
+  height: 2px;
+  overflow: visible;
+  border: 0;
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--card-accent, #58c6ff) 78%, #ffffff 8%) 0%,
+      color-mix(in srgb, var(--card-accent, #58c6ff) 42%, transparent) var(--auto-mixing-slider-percent),
+      rgb(255 255 255 / 0.12) var(--auto-mixing-slider-percent),
+      rgb(255 255 255 / 0.08) 82%,
+      transparent
+    );
+  box-shadow:
+    0 0 10px color-mix(in srgb, var(--card-accent, #58c6ff) 12%, transparent),
+    0 1px 0 rgb(255 255 255 / 0.04);
+  transform: translateY(-50%);
+}
+
+.auto-mixing-slider-row__track::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: var(--auto-mixing-slider-percent);
+  height: 1px;
+  border-radius: 999px;
+  opacity: 0.7;
+  transform: translateY(-50%);
+}
+
+.auto-mixing-slider-row[data-kind="volume"] .auto-mixing-slider-row__track::before {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--card-accent, #58c6ff) 84%, #ffffff),
+    color-mix(in srgb, var(--card-accent, #58c6ff) 28%, transparent)
+  );
+}
+
+.auto-mixing-slider-row[data-kind="fade"] .auto-mixing-slider-row__track::before {
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgb(255 255 255 / 0.18) 0,
+      rgb(255 255 255 / 0.18) 1px,
+      transparent 1px,
+      transparent 9px
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--card-accent, #58c6ff) 72%, #ffffff 4%),
+      color-mix(in srgb, #9ee9d0 26%, transparent)
+    );
+}
+
+.auto-mixing-slider-row__value {
+  position: absolute;
+  left: clamp(21px, var(--auto-mixing-slider-percent), calc(100% - 21px));
+  top: -11px;
+  z-index: 3;
+  min-width: 38px;
+  padding: 3px 5px;
+  border: 1px solid color-mix(in srgb, var(--card-accent, #58c6ff) 34%, rgb(255 255 255 / 0.08));
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.08), rgb(255 255 255 / 0.035)),
+    rgb(9 18 24 / 0.96);
+  box-shadow: 0 8px 18px rgb(0 0 0 / 0.24);
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  text-align: center;
+  transform: translate(-50%, 2px) scale(0.96);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+
+.auto-mixing-slider-row:hover .auto-mixing-slider-row__value,
+.auto-mixing-slider-row__control:hover .auto-mixing-slider-row__value,
+.auto-mixing-slider-row:focus-within .auto-mixing-slider-row__value,
+.auto-mixing-slider-row[data-active="true"] .auto-mixing-slider-row__value {
+  opacity: 1;
+  transform: translate(-50%, -2px) scale(1);
+}
+
+.auto-mixing-slider-row[data-disabled="true"] {
+  opacity: 0.52;
+}
+
+.auto-mixing-slider-row[data-disabled="true"] .auto-mixing-slider-row__value {
+  opacity: 0;
+}
+
+.auto-mixing-slider-row input[type="range"] {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 24px;
+  margin: 0;
+  appearance: none;
+  background: transparent;
+  cursor: grab;
+}
+
+.auto-mixing-slider-row input[type="range"]:active {
+  cursor: grabbing;
+}
+
+.auto-mixing-slider-row input[type="range"]:disabled {
+  cursor: not-allowed;
+}
+
+.auto-mixing-slider-row input[type="range"]:focus-visible {
+  outline: none;
+}
+
+.auto-mixing-slider-row input[type="range"]::-webkit-slider-runnable-track {
+  height: 2px;
+  border: 0;
+  background: transparent;
+}
+
+.auto-mixing-slider-row input[type="range"]::-webkit-slider-thumb {
+  width: 14px;
+  height: 8px;
+  margin-top: -3px;
+  appearance: none;
+  border: 1px solid color-mix(in srgb, var(--card-accent, #58c6ff) 16%, rgb(255 255 255 / 0.1));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--card-accent, #58c6ff) 64%, rgb(213 223 229 / 0.86));
+  box-shadow:
+    0 0 0 4px rgb(5 16 24 / 0.58),
+    0 0 8px color-mix(in srgb, var(--card-accent, #58c6ff) 10%, transparent);
+}
+
+.auto-mixing-slider-row input[type="range"]::-moz-range-track {
+  height: 2px;
+  border: 0;
+  background: transparent;
+}
+
+.auto-mixing-slider-row input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 8px;
+  margin-top: 0;
+  border: 1px solid color-mix(in srgb, var(--card-accent, #58c6ff) 16%, rgb(255 255 255 / 0.1));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--card-accent, #58c6ff) 64%, rgb(213 223 229 / 0.86));
+  box-shadow:
+    0 0 0 4px rgb(5 16 24 / 0.58),
+    0 0 8px color-mix(in srgb, var(--card-accent, #58c6ff) 10%, transparent);
 }
 
 .auto-mixing-icon-button {

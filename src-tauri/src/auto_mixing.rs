@@ -71,6 +71,7 @@ pub struct AutoMixingRequest {
   include_system_sounds: Option<bool>,
   ducked_volume_percent: Option<u8>,
   restore_duration_ms: Option<u64>,
+  attack_duration_ms: Option<u64>,
 }
 
 #[derive(Clone, Copy, Serialize)]
@@ -205,6 +206,7 @@ struct WorkerConfig {
   excluded_executables: BTreeSet<String>,
   include_system_sounds: bool,
   ducked_volume: f32,
+  attack_duration: Duration,
   restore_duration: Duration,
 }
 
@@ -424,11 +426,20 @@ impl WorkerConfig {
           .unwrap_or(DEFAULT_DUCKED_VOLUME_PERCENT)
           .min(MAX_DUCKED_VOLUME_PERCENT),
       ) / 100.0,
+      attack_duration: Duration::from_millis(
+        normalize_attack_duration_ms(request.attack_duration_ms),
+      ),
       restore_duration: Duration::from_millis(
         normalize_restore_duration_ms(request.restore_duration_ms),
       ),
     }
   }
+}
+
+fn normalize_attack_duration_ms(value: Option<u64>) -> u64 {
+  value
+    .unwrap_or(DEFAULT_ATTACK_DURATION_MS)
+    .clamp(MIN_RESTORE_DURATION_MS, MAX_RESTORE_DURATION_MS)
 }
 
 fn normalize_restore_duration_ms(value: Option<u64>) -> u64 {
@@ -554,7 +565,7 @@ fn apply_ducking_round(
           let next_volume = advance_envelope_volume(
             session.current_volume,
             tracked.expected_ducked_volume,
-            Duration::from_millis(DEFAULT_ATTACK_DURATION_MS),
+            config.attack_duration,
           );
           if (next_volume - session.current_volume).abs() > VOLUME_EPSILON
             && set_session_volume(&tracked.volume, next_volume).is_ok()
@@ -568,7 +579,7 @@ fn apply_ducking_round(
             let next_volume = advance_envelope_volume(
               session.current_volume,
               target_volume,
-              Duration::from_millis(DEFAULT_ATTACK_DURATION_MS),
+              config.attack_duration,
             );
             if set_session_volume(&session.volume, next_volume).is_ok() {
               tracked_sessions.insert(
@@ -1102,10 +1113,11 @@ fn sleep_until_stop(stop: &AtomicBool, duration: Duration) -> bool {
 mod tests {
   use super::{
     advance_envelope_volume, compute_audible_trigger_executables_from_iter,
-    envelope_coefficient, is_session_audible, normalize_restore_duration_ms, processes_by_id,
-    sanitize_executables, should_duck_session, user_changed_ducked_volume, AutoMixingRequest,
-    ProcessSnapshot, WorkerConfig, AUDIBLE_PEAK_THRESHOLD, DEFAULT_ATTACK_DURATION_MS,
-    DEFAULT_DUCKED_VOLUME_PERCENT, DEFAULT_RESTORE_DURATION_MS,
+    envelope_coefficient, is_session_audible, normalize_attack_duration_ms,
+    normalize_restore_duration_ms, processes_by_id, sanitize_executables, should_duck_session,
+    user_changed_ducked_volume, AutoMixingRequest, ProcessSnapshot, WorkerConfig,
+    AUDIBLE_PEAK_THRESHOLD, DEFAULT_ATTACK_DURATION_MS, DEFAULT_DUCKED_VOLUME_PERCENT,
+    DEFAULT_RESTORE_DURATION_MS,
   };
   use std::{collections::BTreeSet, time::Duration};
 
@@ -1120,13 +1132,42 @@ mod tests {
       include_system_sounds: None,
       ducked_volume_percent: None,
       restore_duration_ms: None,
+      attack_duration_ms: None,
     });
 
     assert!(config.anchor_executables.contains("spotify.exe"));
     assert!(!config.anchor_executables.contains("discord.exe"));
     assert!(config.excluded_executables.contains("discord.exe"));
     assert_eq!(config.ducked_volume, f32::from(DEFAULT_DUCKED_VOLUME_PERCENT) / 100.0);
+    assert_eq!(config.attack_duration, Duration::from_millis(DEFAULT_ATTACK_DURATION_MS));
     assert_eq!(config.restore_duration, Duration::from_millis(DEFAULT_RESTORE_DURATION_MS));
+  }
+
+  #[test]
+  fn worker_config_accepts_user_tuned_envelope_values() {
+    let config = WorkerConfig::from_request(AutoMixingRequest {
+      enabled: true,
+      selected_executables: Vec::new(),
+      blocked_executables: Vec::new(),
+      anchor_executables: vec!["Spotify.exe".into()],
+      excluded_executables: Vec::new(),
+      include_system_sounds: Some(false),
+      ducked_volume_percent: Some(40),
+      restore_duration_ms: Some(600),
+      attack_duration_ms: Some(600),
+    });
+
+    assert_eq!(config.ducked_volume, 0.4);
+    assert_eq!(config.attack_duration, Duration::from_millis(600));
+    assert_eq!(config.restore_duration, Duration::from_millis(600));
+    assert!(!config.include_system_sounds);
+  }
+
+  #[test]
+  fn attack_duration_defaults_to_legacy_fast_attack() {
+    assert_eq!(normalize_attack_duration_ms(None), DEFAULT_ATTACK_DURATION_MS);
+    assert_eq!(normalize_attack_duration_ms(Some(0)), 0);
+    assert_eq!(normalize_attack_duration_ms(Some(20_000)), 10_000);
   }
 
   #[test]

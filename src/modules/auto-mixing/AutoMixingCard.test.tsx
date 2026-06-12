@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModuleManifest } from "@/app/registry/moduleTypes";
@@ -8,6 +8,7 @@ import { AutoMixingSettings } from "@/modules/auto-mixing/AutoMixingSettings";
 import {
   autoMixingSettings,
   autoMixingState,
+  normalizeAutoMixingSettings,
   type AutoMixingSettings as AutoMixingSettingsModel,
   type AutoMixingState as AutoMixingStateModel,
 } from "@/modules/auto-mixing/defaults";
@@ -148,6 +149,8 @@ describe("AutoMixingCard", () => {
         anchorExecutables: ["Spotify.exe"],
         excludedExecutables: ["Discord.exe"],
         systemSoundsTriggerEnabled: false,
+        duckedVolumePercent: 22,
+        fadeDurationMs: 360,
       },
     });
 
@@ -159,7 +162,10 @@ describe("AutoMixingCard", () => {
           enabled: true,
           anchorExecutables: ["spotify.exe"],
           excludedExecutables: ["discord.exe"],
-          systemSoundsTriggerEnabled: false,
+          includeSystemSounds: false,
+          duckedVolumePercent: 22,
+          restoreDurationMs: 360,
+          attackDurationMs: 360,
         },
       });
     });
@@ -257,6 +263,42 @@ describe("AutoMixingSettings", () => {
     });
   });
 
+  it("normalizes tuning defaults and clamps persisted slider values", () => {
+    expect(
+      normalizeAutoMixingSettings({
+        anchorExecutables: ["Spotify.exe"],
+        excludedExecutables: [],
+        systemSoundsTriggerEnabled: true,
+      }),
+    ).toEqual({
+      ...autoMixingSettings,
+      anchorExecutables: ["spotify.exe"],
+    });
+
+    expect(
+      normalizeAutoMixingSettings({
+        anchorExecutables: [],
+        excludedExecutables: [],
+        systemSoundsTriggerEnabled: true,
+        duckedVolumePercent: 4,
+        fadeDurationMs: 900,
+      }),
+    ).toEqual({
+      ...autoMixingSettings,
+      duckedVolumePercent: 10,
+      fadeDurationMs: 600,
+    });
+
+    expect(
+      normalizeAutoMixingSettings({
+        anchorExecutables: [],
+        excludedExecutables: [],
+        systemSoundsTriggerEnabled: true,
+        restoreDurationMs: 300,
+      }),
+    ).toEqual(autoMixingSettings);
+  });
+
   it("shows selected apps first and opens the add/exclude pages", async () => {
     const user = userEvent.setup();
 
@@ -266,7 +308,15 @@ describe("AutoMixingSettings", () => {
       expect(invokeMock).toHaveBeenCalledWith("auto_mixing_list_targets");
     });
 
-    expect(screen.getByRole("heading", { name: "选择应用" })).toBeInTheDocument();
+    const pageHeading = screen.getByRole("heading", { name: "选择应用" });
+    const duckedVolumeSlider = screen.getByRole("slider", { name: "压低比例" });
+    expect(pageHeading).toBeInTheDocument();
+    expect(screen.queryByText("混音设置")).not.toBeInTheDocument();
+    expect(duckedVolumeSlider.compareDocumentPosition(pageHeading)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(duckedVolumeSlider).toBeInTheDocument();
+    expect(screen.getByRole("slider", { name: "渐入渐出" })).toBeInTheDocument();
     expect(screen.getByText("还没有选择应用")).toBeInTheDocument();
     expect(screen.getAllByText("Spotify").length).toBeGreaterThan(0);
 
@@ -295,9 +345,8 @@ describe("AutoMixingSettings", () => {
     await user.click(screen.getByRole("button", { name: "Add foobar2000.exe to selected apps" }));
 
     expect(onChange).toHaveBeenLastCalledWith({
+      ...autoMixingSettings,
       anchorExecutables: ["foobar2000.exe"],
-      excludedExecutables: [],
-      systemSoundsTriggerEnabled: true,
     });
   });
 
@@ -317,9 +366,8 @@ describe("AutoMixingSettings", () => {
     await user.click(screen.getByRole("button", { name: "Exclude discord.exe from triggers" }));
 
     expect(onChange).toHaveBeenLastCalledWith({
-      anchorExecutables: [],
+      ...autoMixingSettings,
       excludedExecutables: ["discord.exe"],
-      systemSoundsTriggerEnabled: true,
     });
   });
 
@@ -330,6 +378,7 @@ describe("AutoMixingSettings", () => {
     render(
       <StatefulAutoMixingSettings
         settings={{
+          ...autoMixingSettings,
           anchorExecutables: ["spotify.exe"],
           excludedExecutables: [],
           systemSoundsTriggerEnabled: true,
@@ -346,9 +395,9 @@ describe("AutoMixingSettings", () => {
     await user.click(screen.getAllByRole("button", { name: "Exclude spotify.exe from triggers" })[0]);
 
     expect(onChange).toHaveBeenLastCalledWith({
+      ...autoMixingSettings,
       anchorExecutables: [],
       excludedExecutables: ["spotify.exe"],
-      systemSoundsTriggerEnabled: true,
     });
   });
 
@@ -370,6 +419,8 @@ describe("AutoMixingSettings", () => {
     });
 
     expect(screen.getByText("运行中，关闭后可编辑")).toBeInTheDocument();
+    expect(screen.getByRole("slider", { name: "压低比例" })).toBeDisabled();
+    expect(screen.getByRole("slider", { name: "渐入渐出" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Add spotify.exe to selected apps" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Toggle system sounds trigger" })).toBeDisabled();
 
@@ -391,9 +442,39 @@ describe("AutoMixingSettings", () => {
     await user.click(screen.getByRole("button", { name: "Add custom-player.exe to selected apps" }));
 
     expect(onChange).toHaveBeenLastCalledWith({
+      ...autoMixingSettings,
       anchorExecutables: ["custom-player.exe"],
-      excludedExecutables: [],
-      systemSoundsTriggerEnabled: true,
+    });
+  });
+
+  it("updates the tuning sliders from the main settings page", async () => {
+    const onChange = vi.fn();
+
+    render(<StatefulAutoMixingSettings onChangeSpy={onChange} />);
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("auto_mixing_list_targets");
+    });
+
+    const duckedVolumeSlider = screen.getByRole("slider", { name: "压低比例" });
+    const fadeDurationSlider = screen.getByRole("slider", { name: "渐入渐出" });
+
+    expect(duckedVolumeSlider).toHaveValue("15");
+    expect(fadeDurationSlider).toHaveValue("120");
+
+    fireEvent.change(duckedVolumeSlider, { target: { value: "28" } });
+
+    expect(onChange).toHaveBeenLastCalledWith({
+      ...autoMixingSettings,
+      duckedVolumePercent: 28,
+    });
+
+    fireEvent.change(fadeDurationSlider, { target: { value: "420" } });
+
+    expect(onChange).toHaveBeenLastCalledWith({
+      ...autoMixingSettings,
+      duckedVolumePercent: 28,
+      fadeDurationMs: 420,
     });
   });
 
@@ -406,8 +487,7 @@ describe("AutoMixingSettings", () => {
     await user.click(screen.getByRole("button", { name: "Toggle system sounds trigger" }));
 
     expect(onChange).toHaveBeenLastCalledWith({
-      anchorExecutables: [],
-      excludedExecutables: [],
+      ...autoMixingSettings,
       systemSoundsTriggerEnabled: false,
     });
   });

@@ -1,8 +1,12 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Ban, ChevronLeft, ListPlus, Plus, Search, Volume2, X } from "lucide-react";
 import type { ModuleSettingsProps } from "@/app/registry/moduleTypes";
 import {
+  AUTO_MIXING_DUCKED_VOLUME_MAX,
+  AUTO_MIXING_DUCKED_VOLUME_MIN,
+  AUTO_MIXING_FADE_DURATION_MAX,
+  AUTO_MIXING_FADE_DURATION_MIN,
   autoMixingMusicAppLibrary,
   autoMixingSettingsEqual,
   normalizeAutoMixingSettings,
@@ -21,6 +25,7 @@ type AutoMixingTarget = {
 
 type SettingsPage = "select" | "add" | "exclude";
 type CandidateAction = "select" | "exclude";
+type SliderKind = "volume" | "fade";
 
 type CandidateEntry = {
   executableName: string;
@@ -288,6 +293,122 @@ function CandidateGroup({
         )}
       </div>
     </section>
+  );
+}
+
+function formatSliderValue(value: number, unit: "%" | "ms") {
+  return `${value}${unit}`;
+}
+
+function sliderPercent(value: number, min: number, max: number) {
+  if (max <= min) {
+    return 0;
+  }
+
+  return ((value - min) / (max - min)) * 100;
+}
+
+function MixingSlider({
+  label,
+  kind,
+  value,
+  min,
+  max,
+  unit,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  kind: SliderKind;
+  value: number;
+  min: number;
+  max: number;
+  unit: "%" | "ms";
+  disabled: boolean;
+  onChange: (value: number) => void;
+}) {
+  const [isDragging, setIsDragging] = useState(false);
+  const displayValue = formatSliderValue(value, unit);
+  const percent = sliderPercent(value, min, max);
+  const sliderStyle = {
+    "--auto-mixing-slider-percent": `${percent}%`,
+  } as CSSProperties;
+
+  const releaseDrag = () => {
+    setIsDragging(false);
+  };
+
+  return (
+    <label
+      className="auto-mixing-slider-row"
+      data-kind={kind}
+      data-active={isDragging}
+      data-disabled={disabled}
+    >
+      <span className="auto-mixing-slider-row__head">
+        <strong>{label}</strong>
+      </span>
+      <span className="auto-mixing-slider-row__control" style={sliderStyle}>
+        <span className="auto-mixing-slider-row__track" aria-hidden="true" />
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={1}
+          value={value}
+          disabled={disabled}
+          aria-label={label}
+          aria-valuetext={displayValue}
+          onChange={(event) => onChange(Number(event.currentTarget.value))}
+          onPointerDown={() => setIsDragging(true)}
+          onPointerUp={releaseDrag}
+          onPointerCancel={releaseDrag}
+          onBlur={releaseDrag}
+        />
+        <span className="auto-mixing-slider-row__value" aria-hidden="true">
+          {displayValue}
+        </span>
+      </span>
+    </label>
+  );
+}
+
+function MixingControlsPanel({
+  settings,
+  disabled,
+  onChange,
+}: {
+  settings: AutoMixingSettings;
+  disabled: boolean;
+  onChange: (settings: AutoMixingSettings) => void;
+}) {
+  return (
+    <div className="auto-mixing-mix-panel">
+      <div className="auto-mixing-mix-panel__sliders">
+        <MixingSlider
+          label="压低比例"
+          kind="volume"
+          value={settings.duckedVolumePercent}
+          min={AUTO_MIXING_DUCKED_VOLUME_MIN}
+          max={AUTO_MIXING_DUCKED_VOLUME_MAX}
+          unit="%"
+          disabled={disabled}
+          onChange={(duckedVolumePercent) =>
+            onChange({ ...settings, duckedVolumePercent })
+          }
+        />
+        <MixingSlider
+          label="渐入渐出"
+          kind="fade"
+          value={settings.fadeDurationMs}
+          min={AUTO_MIXING_FADE_DURATION_MIN}
+          max={AUTO_MIXING_FADE_DURATION_MAX}
+          unit="ms"
+          disabled={disabled}
+          onChange={(fadeDurationMs) => onChange({ ...settings, fadeDurationMs })}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -705,6 +826,12 @@ export function AutoMixingSettings({
 
   return (
     <div className="settings-flow auto-mixing-shell" data-locked={disabled}>
+      <MixingControlsPanel
+        settings={normalizedSettings}
+        disabled={disabled}
+        onChange={updateSettings}
+      />
+
       <section className="settings-section auto-mixing-console">
         <PageHeader title="选择应用" eyebrow="Auto Mixing" locked={disabled} />
 

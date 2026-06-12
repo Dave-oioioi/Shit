@@ -15,6 +15,11 @@ This handoff covers the latest `auto-mixing` frontend/UI polish pass. It builds 
 
 Do not re-open shell redesign or `prevent-sleep` behavior from this handoff. The scope of this pass was intentionally narrowed to `auto-mixing` card/settings UI.
 
+For the next planned tuning-controls follow-up, see:
+
+- `docs/handoff-auto-mixing-slider-plan.md`
+  - Planning-only handoff for the top-level `混音设置` slider panel
+
 ## Product Decisions From This Pass
 
 - `auto-mixing` feature behavior is in finish-up mode.
@@ -182,6 +187,7 @@ Do not assume every dirty file was modified in the UI pass.
 
 ## Next Steps
 
+0. If the work is about exposing `压低比例` / `渐入渐出`, follow `docs/handoff-auto-mixing-slider-plan.md` instead of reopening this pass from scratch.
 1. Ask the user to refresh Chrome and confirm the scrollbar endpoint arrows are gone.
 2. If arrows persist, replace the recommended-app native scrollbar with a custom or hidden-scrollbar pattern.
 3. Run full verification before handoff/commit:

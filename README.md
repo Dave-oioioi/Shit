@@ -1,150 +1,167 @@
+<div align="center">
+
+<img src="./assets/shit-mark.png" width="112" alt="SHIT VAULT logo" />
+
 # SHIT VAULT
 
-SHIT VAULT 是一个 Windows 桌面托盘应用，基于 Tauri 2、React、TypeScript、Zustand、Vitest 和 Rust 构建。
+Windows tray-first utility shell for auto mixing, prevent sleep, and small native tools.
 
-当前正式版本：`v1.0.0`
+[Website](https://dave-oioioi.github.io/SHIT/) |
+[Release](https://github.com/Dave-oioioi/SHIT/releases/tag/v1.1.0) |
+[Download Installer](https://github.com/Dave-oioioi/SHIT/releases/download/v1.1.0/SHIT.VAULT_1.1.0_x64-setup.exe)
 
-## 1.0 状态
+</div>
 
-- Windows 托盘优先：应用启动后默认隐藏，从托盘打开。
-- 托盘菜单中文本地化：打开、设置、退出。
-- 托盘右键“设置”会直接打开软件设置页。
-- 主壳层固定为 `455 x 660` 的右下角弹出窗口。
-- 关闭窗口、失焦和 `Esc` 默认隐藏窗口，不退出托盘进程。
-- 运行时只能存在一个 `shit-vault.exe` 实例；重复启动会唤起已运行的窗口，不会再开一个进程。
-- 安装包固定为当前用户安装模式，保持同一个产品身份，避免 current-user/per-machine 两套安装并存。
-- 安装或更新前会检测正在运行的 `shit-vault.exe`，如果程序还在托盘运行，会提示先退出，避免覆盖运行中的 exe。
-- `prevent-sleep` 已完成并冻结。
-- `auto-mixing` 已完成 1.0 收尾：选择应用、添加应用、排除应用、系统声音开关和双端点音频监听。
+<div align="center">
 
-## 功能模块
+`v1.1.0` | `Windows x64` | `Tauri 2` | `React` | `TypeScript` | `Rust`
 
-### prevent-sleep
+</div>
 
-`prevent-sleep` 是原生 Windows 保活模块。它通过 Rust/Tauri 命令执行真实系统行为，不由 React 假装状态。
+SHIT VAULT is a desktop utility vault built for fast daily use on Windows. It lives in the tray, opens on demand, stays out of the way when you do not need it, and keeps native behavior in Rust where it belongs.
 
-功能状态：已完成并冻结。除非明确重新打开该功能，否则不要修改原生 keepalive 行为、命令语义、状态模型或设置语义。
+The current first-stage release centers on two modules:
 
-当前行为：
+- `auto-mixing`: automatically ducks selected apps when other apps start speaking
+- `prevent-sleep`: a frozen native keepalive module with protected behavior
 
-- 默认模式是 `idle-keepalive`。
-- 默认空闲激活阈值是 `2 分钟 30 秒`。
-- 激活后的默认重复间隔是 `5 秒`。
-- 空闲检测同时使用键盘和鼠标不活动状态。
-- 保活动作使用当前屏幕，并以左下角安全点为目标，内缩 `48px`。
-- 满足空闲条件时执行双击保活。
-- 支持由 `PgDn` 控制的连续点击模式。
-- 卡片启用时锁定设置。
-- Windows execution-state API 作为静默备份层使用。
+## Product Snapshot
 
-### auto-mixing
+<table>
+  <tr>
+    <td width="33%">
+      <strong>Tray First</strong><br />
+      Starts hidden, opens from the tray, hides on close, hides on focus loss, and supports <code>Esc</code> to dismiss.
+    </td>
+    <td width="33%">
+      <strong>Native Windows Behavior</strong><br />
+      Audio-session monitoring, keepalive control, installer behavior, and shell plumbing run through Tauri and Rust.
+    </td>
+    <td width="33%">
+      <strong>Single Focused Shell</strong><br />
+      A compact shell that keeps modules isolated instead of leaking feature logic into global layout code.
+    </td>
+  </tr>
+</table>
 
-`auto-mixing` 是 1.0 重点模块，用来在其它应用发声时自动压低用户选择的音乐/BGM 应用。
+## Current Modules
 
-当前行为：
+### Auto Mixing
 
-- 开关只负责启动和停止模块。
-- 设置只能在模块关闭时编辑。
-- 选择的应用是需要被压低音量的 duck targets。
-- 排除的应用永不触发压低。
-- 其它正在发声的应用可以作为触发源。
-- 系统声音是否触发由独立开关控制。
-- 同时监听默认多媒体和通信渲染端点。
-- 模块不会在应用重启后自动恢复启用状态。
+The `auto-mixing` module is the main v1.1 feature.
 
-## 分发
+- choose which apps should be ducked
+- exclude apps that should never trigger ducking
+- optionally let system sounds act as triggers
+- monitor both default multimedia and communications endpoints
+- tune ducked volume with the ducked-volume slider
+- tune both duck-in and restore timing with the fade-timing slider
 
-可直接运行的 release exe：
+The latest UI pass keeps the controls compact: the sliders live above the app-selection section, match the shell card language, and stay visible but disabled while the module is running.
+
+### Prevent Sleep
+
+`prevent-sleep` is complete and frozen.
+
+- native Windows keepalive behavior
+- protected command semantics
+- locked product behavior unless explicitly reopened
+
+Future work for this module is UI-only unless the feature is intentionally reopened.
+
+## Shell Behavior
+
+SHIT VAULT is designed as a tray app first, not a normal always-open desktop window.
+
+- app starts hidden
+- tray left click reveals the shell
+- tray menu supports open, settings, and quit actions
+- shell opens as a compact bottom-right utility surface
+- only one `shit-vault.exe` instance can run at a time
+- repeated launch reveals the existing instance instead of spawning a second process
+
+## Download
+
+### Public links
+
+- Website: `https://dave-oioioi.github.io/SHIT/`
+- Release page: `https://github.com/Dave-oioioi/SHIT/releases/tag/v1.1.0`
+- Installer: `https://github.com/Dave-oioioi/SHIT/releases/download/v1.1.0/SHIT.VAULT_1.1.0_x64-setup.exe`
+
+### Local build outputs
 
 ```text
 src-tauri/target/release/shit-vault.exe
+src-tauri/target/release/bundle/nsis/SHIT VAULT_1.1.0_x64-setup.exe
 ```
 
-NSIS 安装包：
+## Development
 
-```text
-src-tauri/target/release/bundle/nsis/SHIT VAULT_1.0.0_x64-setup.exe
-```
-
-GitHub Release：
-
-```text
-https://github.com/Dave-oioioi/SHIT/releases/tag/v1.0.0
-```
-
-## 开发
-
-安装依赖：
+Install dependencies:
 
 ```bash
 npm install
 ```
 
-运行前端开发服务：
+Run the frontend dev server:
 
 ```bash
 npm run dev
 ```
 
-运行 Tauri 开发应用：
+Run the Tauri desktop app:
 
 ```bash
 npm run tauri:dev
 ```
 
-运行测试：
+Run tests:
 
 ```bash
 npm test
 ```
 
-构建前端：
+Build the frontend:
 
 ```bash
 npm run build
 ```
 
-构建不带安装包的 exe：
+Build the release exe without bundling:
 
 ```bash
 npm run tauri:build-exe
 ```
 
-构建 NSIS 安装包：
+Build the NSIS installer:
 
 ```bash
 npm run tauri:build
 ```
 
-如果当前 PowerShell 会话中无法使用 `cargo`：
+If `cargo` is missing in the current PowerShell session:
 
 ```powershell
 $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
 ```
 
-## 验证
+## Verification
 
-发布前运行：
+Run before release sync:
 
 ```bash
-npm test
-npm run build
-cargo check --manifest-path src-tauri/Cargo.toml
-npm run tauri:build-exe
-npm run tauri:build
-git diff --check
+npm run check:release
 ```
 
-## 项目结构
+## Project Structure
 
 ```text
 src/
   app/
-    shell/
-    registry/
-    layout/
-    state/
     hooks/
+    registry/
+    shell/
+    state/
     ui/
   modules/
     auto-mixing/
@@ -152,15 +169,17 @@ src/
 src-tauri/
   nsis/
   src/
-    main.rs
     auto_mixing.rs
+    main.rs
     prevent_sleep.rs
 docs/
+release-page/
+assets/
 ```
 
-## 模块契约
+## Module Contract
 
-每个模块必须从 `module.ts` 导出 `ModuleDefinition`：
+Every module exports a `ModuleDefinition` from `module.ts`:
 
 - `manifest`
 - `CardComponent`
@@ -168,12 +187,13 @@ docs/
 - `defaultState`
 - `defaultSettings`
 
-壳层会自动发现模块。新功能逻辑应保留在 `src/modules/<module-id>/` 和对应 Tauri/Rust 命令中，不应移动到 `AppShell`、`DashboardPage`、托盘代码或全局布局代码里。
+The shell discovers modules through the registry. Feature logic should stay inside `src/modules/<module-id>/` and the corresponding Tauri/Rust boundary instead of being pushed into `AppShell`, `DashboardPage`, tray code, or global layout code.
 
-## 文档
+## Docs
 
-- [Agent 操作指南](AGENTS.md)
-- [术语表](CONTEXT.md)
-- [交接文档](docs/HANDOFF.md)
-- [Prevent Sleep PRD](docs/PRD-prevent-sleep.md)
-- [1.0 发布交接](docs/handoff-v1.0-release.md)
+- [Agent Operating Guide](./AGENTS.md)
+- [Project Handoff](./docs/HANDOFF.md)
+- [Auto Mixing UI Polish](./docs/handoff-auto-mixing-ui-polish.md)
+- [Auto Mixing Tuning Controls](./docs/handoff-auto-mixing-slider-plan.md)
+- [1.1 Release Handoff](./docs/handoff-v1.1-release.md)
+- [Prevent Sleep PRD](./docs/PRD-prevent-sleep.md)

@@ -147,7 +147,10 @@ export function AutoMixingCard({
           enabled: nextEnabled,
           anchorExecutables: normalizedSettings.anchorExecutables,
           excludedExecutables: normalizedSettings.excludedExecutables,
-          systemSoundsTriggerEnabled: normalizedSettings.systemSoundsTriggerEnabled,
+          includeSystemSounds: normalizedSettings.systemSoundsTriggerEnabled,
+          duckedVolumePercent: normalizedSettings.duckedVolumePercent,
+          restoreDurationMs: normalizedSettings.fadeDurationMs,
+          attackDurationMs: normalizedSettings.fadeDurationMs,
         },
       });
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Settings2 } from "lucide-react";
 import { DashboardPage } from "@/app/shell/DashboardPage";
@@ -27,7 +28,9 @@ type ShellNavigationPayload = {
 
 const WINDOW_REVEAL_EVENT = "shell:will-show";
 const SHELL_NAVIGATION_EVENT = "shell:navigate";
-const GITHUB_URL = "https://github.com/Dave-oioioi/SHIT";
+const RELEASE_VERSION = `v${packageInfo.version}`;
+const WEBSITE_URL = packageInfo.homepage;
+const WEBSITE_LABEL = WEBSITE_URL.replace(/^https?:\/\//u, "").replace(/\/$/u, "");
 
 type AppSettingsStatus = {
   launchOnStartup: boolean;
@@ -126,6 +129,14 @@ function ToolsetView({ moduleIds = [], placeholderTitle }: ToolsetViewProps) {
 }
 
 function IntroView() {
+  const openWebsite = async () => {
+    try {
+      await openUrl(WEBSITE_URL);
+    } catch {
+      window.open(WEBSITE_URL, "_blank", "noopener,noreferrer");
+    }
+  };
+
   return (
     <ShellContent bare>
       <article className="vault-info-card intro-card">
@@ -136,19 +147,26 @@ function IntroView() {
           <p className="vault-info-card__eyebrow">Shell Identity</p>
           <h3>Shit Vault</h3>
           <dl className="vault-info-card__meta" aria-label={"\u7248\u672c\u4fe1\u606f"}>
-            <div>
-              <dt>{"\u4e2d\u6587\u540d"}</dt>
-              <dd>{"\u7caa\u5e93"}</dd>
+            <div className="vault-info-card__meta-plain">
+              <dd>{"\u5c4e\u5305"}</dd>
             </div>
             <div>
               <dt>{"\u7248\u672c"}</dt>
-              <dd>v{packageInfo.version}</dd>
+              <dd>{RELEASE_VERSION}</dd>
             </div>
             <div className="vault-info-card__meta-link">
-              <dt>GitHub</dt>
+              <dt>{"\u5b98\u7f51\u5730\u5740"}</dt>
               <dd>
-                <a href={GITHUB_URL} target="_blank" rel="noreferrer">
-                  Dave-oioioi/SHIT
+                <a
+                  href={WEBSITE_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    void openWebsite();
+                  }}
+                >
+                  {WEBSITE_LABEL}
                 </a>
               </dd>
             </div>

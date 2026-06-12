@@ -97,6 +97,7 @@ fn main() {
     .manage(AppState::default())
     .manage(AutoMixingManager::default())
     .manage(PreventSleepManager::default())
+    .plugin(tauri_plugin_opener::init())
     .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
       let _ = show_shell(app, ShellView::Home, None, true);
     }))

@@ -1,15 +1,15 @@
-# SHIT VAULT v1.0.0 Release Handoff
+# SHIT VAULT v1.1.0 Release Handoff
 
 ## Summary
 
-This handoff records the SHIT VAULT `v1.0.0` project closeout: runtime single-instance protection, single install mode, installer safety, README refresh, release build, and GitHub Release target.
+This handoff records the SHIT VAULT `v1.1.0` project closeout: runtime single-instance protection, single install mode, installer safety, README refresh, release build, and GitHub Release target.
 
 ## Product State
 
 - SHIT VAULT is a Windows tray-first Tauri desktop app.
 - The shell is protected infrastructure.
 - `prevent-sleep` is functionally complete and frozen.
-- `auto-mixing` is complete for 1.0 with duck-target selection, add/exclude flows, system-sounds trigger toggle, and dual endpoint listening.
+- `auto-mixing` is complete for 1.1 with duck-target selection, add/exclude flows, system-sounds trigger toggle, dual endpoint listening, and the two tuning sliders.
 - Tray menu `设置` opens directly to the software settings page.
 
 ## Runtime Single Instance
@@ -44,7 +44,7 @@ Key files:
 
 ## Version Metadata
 
-Updated to `1.0.0`:
+Updated to `1.1.0`:
 
 - `package.json`
 - `package-lock.json`
@@ -56,19 +56,18 @@ Updated to `1.0.0`:
 Expected after `npm run tauri:build`:
 
 - `src-tauri/target/release/shit-vault.exe`
-- `src-tauri/target/release/bundle/nsis/SHIT VAULT_1.0.0_x64-setup.exe`
+- `src-tauri/target/release/bundle/nsis/SHIT VAULT_1.1.0_x64-setup.exe`
+
+The public GitHub Release upload keeps the existing asset naming style:
+
+- `SHIT.VAULT_1.1.0_x64-setup.exe`
 
 ## Verification
 
 Run:
 
 ```bash
-npm test
-npm run build
-cargo check --manifest-path src-tauri/Cargo.toml
-npm run tauri:build-exe
-npm run tauri:build
-git diff --check
+npm run check:release
 ```
 
 Optional live checks:
@@ -80,9 +79,9 @@ Optional live checks:
 
 ## Release Target
 
-- Tag: `v1.0.0`
-- Release URL: `https://github.com/Dave-oioioi/SHIT/releases/tag/v1.0.0`
-- Release asset: `SHIT VAULT_1.0.0_x64-setup.exe`
+- Tag: `v1.1.0`
+- Release URL: `https://github.com/Dave-oioioi/SHIT/releases/tag/v1.1.0`
+- Release asset: `SHIT.VAULT_1.1.0_x64-setup.exe`
 
 ## Notes For Future Work
 

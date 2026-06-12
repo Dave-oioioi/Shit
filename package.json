@@ -1,19 +1,30 @@
 {
-  "name": "shit",
+  "name": "shit-vault",
   "private": true,
-  "version": "1.0.0",
+  "description": "Windows tray-first utility shell for auto mixing, prevent sleep, and small native tools.",
+  "version": "1.1.0",
+  "homepage": "https://dave-oioioi.github.io/SHIT/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Dave-oioioi/SHIT.git"
+  },
+  "author": "Dave",
+  "license": "UNLICENSED",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.app.json && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "check": "npm test && npm run build && cargo check --manifest-path src-tauri/Cargo.toml && git diff --check",
+    "check:release": "npm run check && npm run tauri:build-exe && npm run tauri:build",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "tauri:build-exe": "tauri build --no-bundle"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",
+    "@tauri-apps/plugin-opener": "^2.5.4",
     "lucide-react": "^0.525.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

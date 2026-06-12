@@ -7,7 +7,7 @@ import { useModuleSettingsStore } from "@/app/state/moduleSettingsStore";
 import { useModuleStateStore } from "@/app/state/moduleStateStore";
 import { useRegistryStore } from "@/app/state/registryStore";
 
-const { eventListeners, hideMock, invokeMock, shellNavigationResponse } = vi.hoisted(() => {
+const { eventListeners, hideMock, invokeMock, openUrlMock, shellNavigationResponse } = vi.hoisted(() => {
   const shellNavigationResponse = { value: { view: "home" } };
 
   return {
@@ -33,6 +33,7 @@ const { eventListeners, hideMock, invokeMock, shellNavigationResponse } = vi.hoi
 
       return undefined;
     }),
+    openUrlMock: vi.fn(async () => undefined),
     shellNavigationResponse,
   };
 });
@@ -46,10 +47,17 @@ const SELECT_APPS = "\u9009\u62e9\u5e94\u7528";
 const ADD_APPS = "\u6dfb\u52a0\u5e94\u7528";
 const EXCLUDE_APPS = "\u6392\u9664\u5e94\u7528";
 const LAUNCH_ON_STARTUP = "\u5f00\u673a\u542f\u52a8";
-const CHINESE_NAME = "\u7caa\u5e93";
+const CHINESE_NAME = "\u5c4e\u5305";
+const APP_VERSION = "v1.1.0";
+const WEBSITE_URL = "https://dave-oioioi.github.io/SHIT/";
+const WEBSITE_LABEL = "dave-oioioi.github.io/SHIT";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: invokeMock,
+}));
+
+vi.mock("@tauri-apps/plugin-opener", () => ({
+  openUrl: openUrlMock,
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({
@@ -72,6 +80,7 @@ describe("AppShell", () => {
     eventListeners.clear();
     hideMock.mockClear();
     invokeMock.mockClear();
+    openUrlMock.mockClear();
     useRegistryStore.setState({
       modules: [],
       enabledModuleIds: [],
@@ -142,11 +151,24 @@ describe("AppShell", () => {
     await user.click(screen.getByRole("button", { name: "Shit Vault" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Shit Vault" })).toBeInTheDocument();
     expect(screen.getByText(CHINESE_NAME)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Dave-oioioi/SHIT" })).toHaveAttribute(
+    expect(screen.queryByText("\u4e2d\u6587\u540d")).not.toBeInTheDocument();
+    expect(screen.getByText("\u5b98\u7f51\u5730\u5740")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: WEBSITE_LABEL })).toHaveAttribute(
       "href",
-      "https://github.com/Dave-oioioi/SHIT",
+      WEBSITE_URL,
     );
-    expect(screen.getByText("v1.0.0")).toBeInTheDocument();
+    expect(screen.getByText(APP_VERSION)).toBeInTheDocument();
+  });
+
+  it("opens the website link with the system browser", async () => {
+    const user = userEvent.setup();
+    render(<AppShell />);
+
+    await screen.findByRole("heading", { name: AUTO_MIXING });
+    await user.click(screen.getByRole("button", { name: "Shit Vault" }));
+    await user.click(await screen.findByRole("link", { name: WEBSITE_LABEL }));
+
+    expect(openUrlMock).toHaveBeenCalledWith(WEBSITE_URL);
   });
 
   it("switches to settings when tray navigation requests it", async () => {

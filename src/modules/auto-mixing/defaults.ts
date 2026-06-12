@@ -11,6 +11,8 @@ export type AutoMixingSettings = {
   anchorExecutables: string[];
   excludedExecutables: string[];
   systemSoundsTriggerEnabled: boolean;
+  duckedVolumePercent: number;
+  fadeDurationMs: number;
 };
 
 export type AutoMixingLibraryApp = {
@@ -76,10 +78,20 @@ export const autoMixingState: AutoMixingState = {
   observedSessionCount: 0,
 };
 
+export const AUTO_MIXING_DUCKED_VOLUME_MIN = 10;
+export const AUTO_MIXING_DUCKED_VOLUME_MAX = 40;
+export const AUTO_MIXING_DUCKED_VOLUME_DEFAULT = 15;
+export const AUTO_MIXING_FADE_DURATION_MIN = 0;
+export const AUTO_MIXING_FADE_DURATION_MAX = 600;
+export const AUTO_MIXING_FADE_DURATION_DEFAULT = 120;
+const LEGACY_AUTO_MIXING_RESTORE_DEFAULT = 300;
+
 export const autoMixingSettings: AutoMixingSettings = {
   anchorExecutables: [],
   excludedExecutables: [],
   systemSoundsTriggerEnabled: true,
+  duckedVolumePercent: AUTO_MIXING_DUCKED_VOLUME_DEFAULT,
+  fadeDurationMs: AUTO_MIXING_FADE_DURATION_DEFAULT,
 };
 
 function normalizeExecutableList(value: unknown) {
@@ -98,6 +110,35 @@ function normalizeExecutableList(value: unknown) {
 
 function normalizeBoolean(value: unknown, fallback: boolean) {
   return typeof value === "boolean" ? value : fallback;
+}
+
+function normalizeInteger(value: unknown, fallback: number, min: number, max: number) {
+  const numeric =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim()
+        ? Number(value)
+        : Number.NaN;
+
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+
+  return Math.min(max, Math.max(min, Math.round(numeric)));
+}
+
+function isLegacyDefaultDuration(value: unknown) {
+  const numeric =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim()
+        ? Number(value)
+        : Number.NaN;
+
+  return (
+    Number.isFinite(numeric) &&
+    Math.round(numeric) === LEGACY_AUTO_MIXING_RESTORE_DEFAULT
+  );
 }
 
 export function normalizeExecutableName(value: string) {
@@ -119,6 +160,8 @@ export function normalizeAutoMixingSettings(
   const anchorExecutables = normalizeExecutableList(
     rawSettings.anchorExecutables ?? rawSettings.selectedExecutables,
   ).filter((entry) => !excludedExecutables.includes(entry));
+  const legacyFadeDuration =
+    rawSettings.restoreDurationMs ?? rawSettings.restore_duration_ms;
 
   return {
     anchorExecutables,
@@ -126,6 +169,21 @@ export function normalizeAutoMixingSettings(
     systemSoundsTriggerEnabled: normalizeBoolean(
       rawSettings.systemSoundsTriggerEnabled,
       true,
+    ),
+    duckedVolumePercent: normalizeInteger(
+      rawSettings.duckedVolumePercent ?? rawSettings.ducked_volume_percent,
+      AUTO_MIXING_DUCKED_VOLUME_DEFAULT,
+      AUTO_MIXING_DUCKED_VOLUME_MIN,
+      AUTO_MIXING_DUCKED_VOLUME_MAX,
+    ),
+    fadeDurationMs: normalizeInteger(
+      rawSettings.fadeDurationMs ??
+        (isLegacyDefaultDuration(legacyFadeDuration)
+          ? AUTO_MIXING_FADE_DURATION_DEFAULT
+          : legacyFadeDuration),
+      AUTO_MIXING_FADE_DURATION_DEFAULT,
+      AUTO_MIXING_FADE_DURATION_MIN,
+      AUTO_MIXING_FADE_DURATION_MAX,
     ),
   };
 }
@@ -138,6 +196,8 @@ export function autoMixingSettingsEqual(
 
   return (
     left.systemSoundsTriggerEnabled === normalizedRight.systemSoundsTriggerEnabled &&
+    left.duckedVolumePercent === normalizedRight.duckedVolumePercent &&
+    left.fadeDurationMs === normalizedRight.fadeDurationMs &&
     left.anchorExecutables.length === normalizedRight.anchorExecutables.length &&
     left.excludedExecutables.length === normalizedRight.excludedExecutables.length &&
     left.anchorExecutables.every(
