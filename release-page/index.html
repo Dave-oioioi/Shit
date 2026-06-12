@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="SHIT VAULT is a Windows tray-first desktop app for auto mixing, prevent sleep, and small native utilities."
+    />
+    <title>SHIT VAULT - Windows Tray Utility</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="site-grain" aria-hidden="true"></div>
+    <div class="cursor-light" aria-hidden="true"></div>
+    <div class="lang-corner">
+      <button
+        class="lang-toggle"
+        type="button"
+        aria-label="Switch language"
+        data-lang-toggle
+      >
+        <span data-i18n="langShort">EN</span>
+      </button>
+    </div>
+
+    <header class="topbar" aria-label="Site navigation">
+      <a class="brand" href="#top" aria-label="SHIT VAULT home">
+        <img src="./assets/shit-mark.png" alt="" />
+        <span>SHIT VAULT</span>
+      </a>
+      <nav>
+        <a href="#features" data-i18n="navFeatures">Features</a>
+        <a href="#download" data-i18n="navDownload">Download</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <div class="logo-burst" aria-hidden="true">
+            <img src="./assets/shit-mark.png" alt="" />
+          </div>
+          <h1 id="hero-title">SHIT VAULT</h1>
+          <p class="hero-lede" data-i18n="heroLede">
+            Made by SHIT BAG. Built like a gem.
+          </p>
+          <div class="hero-actions" aria-label="Download links">
+            <a
+              class="button button-primary"
+              href="https://github.com/Dave-oioioi/SHIT/releases/download/v1.0.0/SHIT.VAULT_1.0.0_x64-setup.exe"
+              data-i18n="heroPrimary"
+            >
+              Download for Windows
+            </a>
+            <a
+              class="button button-secondary"
+              href="https://github.com/Dave-oioioi/SHIT/releases/tag/v1.0.0"
+              data-i18n="heroSecondary"
+            >
+              View release
+            </a>
+          </div>
+          <div class="hero-proof" aria-label="Release facts">
+            <span data-i18n="proof1">Windows x64</span>
+            <span data-i18n="proof3">GitHub Release asset</span>
+          </div>
+        </div>
+
+        <div class="hero-stage" aria-label="Animated SHIT VAULT preview">
+          <div class="tray-hint">
+            <span></span>
+            <strong data-i18n="trayAwake">tray awake</strong>
+          </div>
+
+          <div class="vault-demo" data-stage="0">
+            <div class="pointer-field" aria-hidden="true"></div>
+            <div class="vault-window">
+              <aside class="vault-rail" aria-hidden="true">
+                <img src="./assets/shit-mark.png" alt="" />
+                <span class="rail-dot rail-dot-active"></span>
+                <span class="rail-dot"></span>
+                <span class="rail-line"></span>
+                <strong>02</strong>
+              </aside>
+
+              <section class="vault-panel">
+                <header class="vault-panel-head">
+                  <div>
+                    <p data-i18n="mockEyebrow">CONTROL VAULT</p>
+                    <h2 data-i18n="mockTitle">Dashboard</h2>
+                  </div>
+                  <span class="live-pill" data-i18n="mockLive">LIVE</span>
+                </header>
+
+                <article class="mock-card mock-card-mix">
+                  <div class="mock-card-head">
+                    <div class="mock-icon mock-icon-waves">
+                      <span></span>
+                      <span></span>
+                      <span></span>
+                    </div>
+                    <h3 data-i18n="mockMixTitle">Auto Mixing</h3>
+                    <em data-i18n="mockMixState">ON</em>
+                  </div>
+                  <div class="wave-lane" aria-hidden="true">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </div>
+                  <div class="mix-meter" aria-hidden="true">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </div>
+                  <div class="mock-settings">
+                    <div class="settings-title">
+                      <strong data-i18n="mockSelectedApps">Selected apps</strong>
+                      <b>3</b>
+                    </div>
+                    <div class="app-row">
+                      <i></i>
+                      <span>Spotify.exe</span>
+                      <small>-42%</small>
+                    </div>
+                    <div class="app-row app-row-dim">
+                      <i></i>
+                      <span>Discord.exe</span>
+                      <small data-i18n="mockTrigger">trigger</small>
+                    </div>
+                  </div>
+                </article>
+
+                <article class="mock-card mock-card-sleep">
+                  <div class="mock-card-head">
+                    <div class="mock-icon mock-icon-moon"></div>
+                    <h3 data-i18n="mockSleepTitle">Prevent Sleep</h3>
+                    <em data-i18n="mockSleepState">READY</em>
+                  </div>
+                  <div class="sleep-line" aria-hidden="true">
+                    <span></span>
+                  </div>
+                </article>
+              </section>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="ticker" aria-label="Product highlights">
+        <div>
+          <span data-i18n="ticker1">Auto Mixing</span>
+          <span data-i18n="ticker2">Tray-first</span>
+          <span data-i18n="ticker3">Native Windows behavior</span>
+          <span data-i18n="ticker4">Prevent Sleep</span>
+          <span data-i18n="ticker5">Audio session aware</span>
+          <span data-i18n="ticker1">Auto Mixing</span>
+          <span data-i18n="ticker2">Tray-first</span>
+          <span data-i18n="ticker3">Native Windows behavior</span>
+        </div>
+      </section>
+
+      <section id="features" class="feature-section" aria-labelledby="features-title">
+        <div class="feature-grid">
+          <article class="feature-card">
+            <span>01</span>
+            <h3 data-i18n="feature1Title">Auto Mixing</h3>
+            <p data-i18n="feature1Body">
+              Choose the apps that should duck, exclude the apps that should
+              never trigger, and let Windows audio sessions do the work.
+            </p>
+          </article>
+          <article class="feature-card">
+            <span>02</span>
+            <h3 data-i18n="feature2Title">Tray First</h3>
+            <p data-i18n="feature2Body">
+              Starts hidden, opens from the tray, and gets out of your way
+              when the window loses focus.
+            </p>
+          </article>
+          <article class="feature-card">
+            <span>03</span>
+            <h3 data-i18n="feature3Title">Prevent Sleep</h3>
+            <p data-i18n="feature3Body">
+              A frozen, native keepalive module for the moments when Windows
+              needs a polite but firm nudge.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section id="download" class="download-section" aria-labelledby="download-title">
+        <div class="download-mark" aria-hidden="true">
+          <img src="./assets/shit-mark.png" alt="" />
+        </div>
+        <div>
+          <p class="eyebrow" data-i18n="downloadEyebrow">Public release</p>
+          <h2 id="download-title" data-i18n="downloadTitle">Download SHIT VAULT for Windows.</h2>
+          <p data-i18n="downloadBody">
+            The installer is hosted as a GitHub Release asset so the download
+            link stays public, durable, and easy to verify.
+          </p>
+        </div>
+        <div class="download-actions">
+          <a
+            class="button button-primary"
+            href="https://github.com/Dave-oioioi/SHIT/releases/download/v1.0.0/SHIT.VAULT_1.0.0_x64-setup.exe"
+            data-i18n="downloadPrimary"
+          >
+            Get the installer
+          </a>
+          <a
+            class="button button-secondary"
+            href="https://github.com/Dave-oioioi/SHIT/releases/tag/v1.0.0"
+            data-i18n="downloadSecondary"
+          >
+            Release notes
+          </a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>SHIT VAULT v1.0.0</span>
+      <a href="https://github.com/Dave-oioioi/SHIT" data-i18n="footerGithub">GitHub</a>
+    </footer>
+
+    <script src="./script.js"></script>
+  </body>
+</html>
