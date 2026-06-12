@@ -2408,6 +2408,61 @@ button {
   gap: 10px;
 }
 
+.prevent-sleep-fields > .settings-field--stacked {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px;
+  gap: 5px 10px;
+  align-items: center;
+  padding: 9px 10px;
+  border: 1px solid rgb(255 255 255 / 0.05);
+  border-radius: calc(var(--radius-sm) - 1px);
+  background: rgb(255 255 255 / 0.02);
+}
+
+.prevent-sleep-fields > .settings-field--stacked > span {
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.prevent-sleep-fields > .settings-field--stacked .settings-value-cycle {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: grid;
+  grid-template-columns: 82px 18px;
+  gap: 10px;
+  align-items: center;
+}
+
+.prevent-sleep-fields > .settings-field--stacked .settings-value-button {
+  min-height: 34px;
+  padding: 6px 10px;
+  border-color: color-mix(in srgb, var(--card-accent, #a7d77b) 34%, var(--line));
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--card-accent, #a7d77b) 12%, transparent),
+      rgb(255 255 255 / 0.05)
+    ),
+    rgb(255 255 255 / 0.035);
+  font-size: 12px;
+}
+
+.prevent-sleep-fields > .settings-field--stacked .settings-value-cycle em {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.prevent-sleep-fields > .settings-field--stacked .settings-field-hint {
+  grid-column: 1;
+  max-width: 23ch;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
 .prevent-sleep-field {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 82px 18px;
