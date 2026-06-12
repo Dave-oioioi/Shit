@@ -209,13 +209,13 @@ a {
 .hero {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 0.88fr) minmax(380px, 0.98fr);
+  grid-template-columns: minmax(0, 0.9fr) minmax(400px, 1.02fr);
   align-items: center;
-  gap: clamp(34px, 5vw, 82px);
-  width: min(1120px, calc(100% - 48px));
-  min-height: calc(100vh - 132px);
+  gap: clamp(30px, 4.6vw, 74px);
+  width: min(1160px, calc(100% - 40px));
+  min-height: calc(100vh - 118px);
   margin: 0 auto;
-  padding: 34px 0 54px;
+  padding: 28px 0 44px;
 }
 
 .hero::before {
@@ -233,7 +233,7 @@ a {
 .hero-copy {
   position: relative;
   z-index: 2;
-  padding-top: 18px;
+  padding-top: 10px;
 }
 
 .eyebrow,
@@ -249,9 +249,9 @@ a {
 
 .logo-burst {
   position: relative;
-  width: clamp(96px, 10vw, 128px);
-  height: clamp(96px, 10vw, 128px);
-  margin-bottom: 14px;
+  width: clamp(102px, 11vw, 138px);
+  height: clamp(102px, 11vw, 138px);
+  margin-bottom: 16px;
   display: grid;
   place-items: center;
 }
@@ -298,8 +298,8 @@ p {
 
 h1 {
   max-width: 9ch;
-  margin-bottom: 14px;
-  font-size: clamp(64px, 8.4vw, 114px);
+  margin-bottom: 16px;
+  font-size: clamp(68px, 8.9vw, 124px);
   line-height: 0.78;
   letter-spacing: 0;
   text-transform: uppercase;
@@ -309,11 +309,11 @@ h1 {
 }
 
 .hero-lede {
-  max-width: 500px;
-  margin-bottom: 24px;
+  max-width: 530px;
+  margin-bottom: 26px;
   color: var(--paper);
   font-family: "Instrument Serif", Georgia, serif;
-  font-size: clamp(22px, 2.6vw, 34px);
+  font-size: clamp(24px, 2.9vw, 38px);
   line-height: 1.04;
 }
 
@@ -402,13 +402,13 @@ h1 {
 
 .hero-stage {
   position: relative;
-  min-height: 520px;
+  min-height: 550px;
 }
 
 .tray-hint {
   position: absolute;
-  right: 10%;
-  top: 3%;
+  right: 9%;
+  top: 2.5%;
   z-index: 4;
   display: inline-flex;
   align-items: center;
@@ -436,7 +436,7 @@ h1 {
 
 .vault-demo {
   position: absolute;
-  inset: 42px 0 0;
+  inset: 44px 0 0;
   perspective: 1200px;
 }
 
@@ -455,11 +455,11 @@ h1 {
 .vault-window {
   position: absolute;
   right: 0;
-  top: 32px;
+  top: 38px;
   display: grid;
   grid-template-columns: 58px minmax(0, 1fr);
-  width: min(414px, 88vw);
-  height: 602px;
+  width: min(432px, 90vw);
+  height: 628px;
   border: 1px solid rgba(240, 226, 200, 0.18);
   border-radius: 8px;
   overflow: hidden;
@@ -542,7 +542,7 @@ h1 {
 
 .vault-panel {
   min-width: 0;
-  padding: 18px 14px 14px;
+  padding: 19px 14px 15px;
   background:
     linear-gradient(180deg, rgba(85, 216, 255, 0.05), transparent 28%),
     rgba(255, 255, 255, 0.012);
@@ -567,7 +567,7 @@ h1 {
 
 .vault-panel-head h2 {
   margin: 0;
-  font-size: 25px;
+  font-size: 27px;
   line-height: 1;
 }
 
@@ -584,8 +584,8 @@ h1 {
 
 .mock-card {
   position: relative;
-  margin-bottom: 10px;
-  padding: 14px;
+  margin-bottom: 11px;
+  padding: 15px;
   border: 1px solid rgba(240, 226, 200, 0.14);
   border-radius: 8px;
   overflow: hidden;
@@ -617,7 +617,7 @@ h1 {
 
 .mock-card-head h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: 17px;
 }
 
 .mock-card-head em {
@@ -631,8 +631,8 @@ h1 {
 .mock-icon {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   border: 1px solid rgba(183, 255, 77, 0.24);
   border-radius: 8px;
   background: rgba(183, 255, 77, 0.08);
@@ -682,8 +682,8 @@ h1 {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 7px;
-  height: 62px;
-  margin: 14px 0 10px;
+  height: 68px;
+  margin: 16px 0 10px;
   align-items: end;
 }
 
@@ -864,7 +864,7 @@ h1 {
 
 .feature-section,
 .download-section {
-  width: min(1120px, calc(100% - 48px));
+  width: min(1160px, calc(100% - 40px));
   margin: 0 auto;
 }
 
@@ -1119,8 +1119,8 @@ h1 {
   .hero {
     grid-template-columns: 1fr;
     min-height: auto;
-    width: min(100% - 32px, 1120px);
-    padding-top: 54px;
+    width: min(100% - 32px, 1160px);
+    padding-top: 48px;
   }
 
   .hero::before {
@@ -1128,7 +1128,7 @@ h1 {
   }
 
   .hero-stage {
-    min-height: 560px;
+    min-height: 590px;
   }
 
   .vault-window {
@@ -1181,7 +1181,7 @@ h1 {
   }
 
   .topbar {
-    width: min(100% - 24px, 1120px);
+    width: min(100% - 24px, 1160px);
     padding-block: 12px;
     grid-template-columns: 1fr;
   }
@@ -1199,20 +1199,20 @@ h1 {
   .feature-section,
   .download-section,
   .footer {
-    width: min(100% - 24px, 1120px);
+    width: min(100% - 24px, 1160px);
   }
 
   .hero {
-    padding-top: 48px;
-    padding-bottom: 46px;
+    padding-top: 42px;
+    padding-bottom: 42px;
   }
 
   h1 {
-    font-size: clamp(58px, 21vw, 92px);
+    font-size: clamp(62px, 22vw, 100px);
   }
 
   .hero-lede {
-    font-size: 22px;
+    font-size: 24px;
   }
 
   .hero-actions,
@@ -1221,12 +1221,12 @@ h1 {
   }
 
   .hero-stage {
-    min-height: 440px;
+    min-height: 470px;
   }
 
   .vault-window {
-    width: min(390px, calc(100vw - 24px));
-    height: 500px;
+    width: min(404px, calc(100vw - 24px));
+    height: 528px;
     grid-template-columns: 48px minmax(0, 1fr);
   }
 
