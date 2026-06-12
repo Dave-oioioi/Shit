@@ -35,35 +35,8 @@ function readableError(error: unknown) {
   return ERROR_FALLBACK;
 }
 
-function formatTime(value: string | null) {
-  if (!value) {
-    return "";
-  }
-
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? "" : parsed.toLocaleTimeString();
-}
-
-function buildStatusLine(state: AutoMixingState, settings: AutoMixingSettings) {
-  if (state.runtimeError) {
-    return state.runtimeError;
-  }
-
-  if (state.enabled) {
-    return `当前压低 ${state.activeDuckCount} 个应用，监听 ${state.observedSessionCount} 个会话`;
-  }
-
-  const ruleCount =
-    settings.anchorExecutables.length + settings.excludedExecutables.length;
-  const lastActionTime = formatTime(state.lastActionAt);
-
-  if (lastActionTime) {
-    return ruleCount > 0
-      ? `已配置 ${ruleCount} 条规则，最近动作 ${lastActionTime}`
-      : `最近动作 ${lastActionTime}`;
-  }
-
-  return ruleCount > 0 ? `已配置 ${ruleCount} 条规则` : "直接读取系统音量合成器中的会话";
+function buildStatusLine(state: AutoMixingState) {
+  return state.runtimeError ?? "";
 }
 
 export function AutoMixingCard({
@@ -77,13 +50,28 @@ export function AutoMixingCard({
   onToggleExpand,
 }: ModuleCardProps<AutoMixingState>) {
   const [isSwitching, setIsSwitching] = useState(false);
+  const [switchFeedback, setSwitchFeedback] = useState<"idle" | "reject">("idle");
   const onPatchStateRef = useRef(onPatchState);
+  const rejectResetTimerRef = useRef<number | null>(null);
+  const rejectExpandTimerRef = useRef<number | null>(null);
   const normalizedSettings = normalizeAutoMixingSettings(settings);
-  const status = buildStatusLine(state, normalizedSettings);
+  const status = buildStatusLine(state);
 
   useEffect(() => {
     onPatchStateRef.current = onPatchState;
   }, [onPatchState]);
+
+  useEffect(() => {
+    return () => {
+      if (rejectResetTimerRef.current !== null) {
+        window.clearTimeout(rejectResetTimerRef.current);
+      }
+
+      if (rejectExpandTimerRef.current !== null) {
+        window.clearTimeout(rejectExpandTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!isActive) {
@@ -125,7 +113,28 @@ export function AutoMixingCard({
   }, [isActive]);
 
   const toggleAutoMixing = async () => {
-    if (isSwitching) {
+    if (isSwitching || switchFeedback === "reject") {
+      return;
+    }
+
+    if (!isActive && normalizedSettings.anchorExecutables.length === 0) {
+      setSwitchFeedback("reject");
+
+      if (rejectExpandTimerRef.current !== null) {
+        window.clearTimeout(rejectExpandTimerRef.current);
+      }
+      if (rejectResetTimerRef.current !== null) {
+        window.clearTimeout(rejectResetTimerRef.current);
+      }
+
+      rejectExpandTimerRef.current = window.setTimeout(() => {
+        if (!isExpanded) {
+          onToggleExpand();
+        }
+      }, 180);
+      rejectResetTimerRef.current = window.setTimeout(() => {
+        setSwitchFeedback("idle");
+      }, 620);
       return;
     }
 
@@ -138,8 +147,7 @@ export function AutoMixingCard({
           enabled: nextEnabled,
           anchorExecutables: normalizedSettings.anchorExecutables,
           excludedExecutables: normalizedSettings.excludedExecutables,
-          duckedVolumePercent: normalizedSettings.duckedVolumePercent,
-          restoreDurationMs: normalizedSettings.restoreDurationMs,
+          systemSoundsTriggerEnabled: normalizedSettings.systemSoundsTriggerEnabled,
         },
       });
 
@@ -185,6 +193,7 @@ export function AutoMixingCard({
       onToggleActive={toggleAutoMixing}
       onToggleExpand={onToggleExpand}
       switchLabel={SWITCH_LABEL}
+      switchFeedback={switchFeedback}
     >
       <div className="module-ambient module-ambient--mix" aria-hidden="true">
         <span />

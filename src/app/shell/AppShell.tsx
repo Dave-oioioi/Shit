@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Settings2 } from "lucide-react";
@@ -25,11 +26,18 @@ type ShellNavigationPayload = {
 };
 
 const WINDOW_REVEAL_EVENT = "shell:will-show";
+const SHELL_NAVIGATION_EVENT = "shell:navigate";
+const GITHUB_URL = "https://github.com/Dave-oioioi/SHIT";
+
+type AppSettingsStatus = {
+  launchOnStartup: boolean;
+};
 
 type RailItem = {
   id: Exclude<ViewId, "intro" | "home" | "settings">;
   label: string;
   logo: "stall" | "poop" | "urinal" | "sink";
+  moduleIds: string[];
 };
 
 const railItems: RailItem[] = [
@@ -37,21 +45,25 @@ const railItems: RailItem[] = [
     id: "toolset-01",
     label: "\u4e3b\u5751\u4f4d",
     logo: "stall",
+    moduleIds: ["auto-mixing", "prevent-sleep"],
   },
   {
     id: "toolset-02",
     label: "\u5927\u4fbf\u4f4d",
     logo: "poop",
+    moduleIds: [],
   },
   {
     id: "toolset-03",
     label: "\u5c0f\u4fbf\u6c60",
     logo: "urinal",
+    moduleIds: [],
   },
   {
     id: "toolset-04",
     label: "\u6d17\u624b\u53f0",
     logo: "sink",
+    moduleIds: [],
   },
 ];
 
@@ -125,8 +137,20 @@ function IntroView() {
           <h3>Shit Vault</h3>
           <dl className="vault-info-card__meta" aria-label={"\u7248\u672c\u4fe1\u606f"}>
             <div>
+              <dt>{"\u4e2d\u6587\u540d"}</dt>
+              <dd>{"\u7caa\u5e93"}</dd>
+            </div>
+            <div>
               <dt>{"\u7248\u672c"}</dt>
               <dd>v{packageInfo.version}</dd>
+            </div>
+            <div className="vault-info-card__meta-link">
+              <dt>GitHub</dt>
+              <dd>
+                <a href={GITHUB_URL} target="_blank" rel="noreferrer">
+                  Dave-oioioi/SHIT
+                </a>
+              </dd>
             </div>
           </dl>
         </div>
@@ -139,40 +163,187 @@ function AppSettingsView() {
   const modules = useRegistryStore((state) => state.modules);
   const enabledModuleIds = useRegistryStore((state) => state.enabledModuleIds);
   const toggleModuleEnabled = useRegistryStore((state) => state.toggleModuleEnabled);
+  const [appSettings, setAppSettings] = useState<AppSettingsStatus>({
+    launchOnStartup: false,
+  });
+  const [startupError, setStartupError] = useState<string | null>(null);
+  const [isStartupSwitching, setIsStartupSwitching] = useState(false);
+  const moduleById = useMemo(
+    () =>
+      new Map(
+        modules.map((moduleDefinition) => [
+          moduleDefinition.manifest.id,
+          moduleDefinition,
+        ]),
+      ),
+    [modules],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void invoke<AppSettingsStatus>("app_settings_status")
+      .then((status) => {
+        if (!cancelled) {
+          setAppSettings(status);
+          setStartupError(null);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setStartupError(readableError(error, "\u8bfb\u53d6\u5f00\u673a\u542f\u52a8\u72b6\u6001\u5931\u8d25"));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const toggleLaunchOnStartup = async () => {
+    if (isStartupSwitching) {
+      return;
+    }
+
+    const nextEnabled = !appSettings.launchOnStartup;
+    setIsStartupSwitching(true);
+    setStartupError(null);
+
+    try {
+      const status = await invoke<AppSettingsStatus>("app_set_launch_on_startup", {
+        enabled: nextEnabled,
+      });
+      setAppSettings(status);
+    } catch (error) {
+      setStartupError(readableError(error, "\u66f4\u65b0\u5f00\u673a\u542f\u52a8\u5931\u8d25"));
+    } finally {
+      setIsStartupSwitching(false);
+    }
+  };
 
   return (
     <ShellContent bare>
       <div className="settings-compact">
-        <div className="settings-compact__head">
-          <div>
-            <p className="drawer-card__eyebrow">Workspace</p>
-            <h3>{"\u9996\u9875\u663e\u793a"}</h3>
+        <section className="settings-card settings-card--global">
+          <div className="settings-compact__head">
+            <div>
+              <p className="drawer-card__eyebrow">Global</p>
+              <h3>{"\u5168\u5c40\u8bbe\u7f6e"}</h3>
+            </div>
           </div>
-          <span className="drawer-card__meta">
-            {enabledModuleIds.length} / {modules.length}
-          </span>
-        </div>
 
-        <div className="settings-list">
-          {modules.map((moduleDefinition) => {
-            const enabled = enabledModuleIds.includes(moduleDefinition.manifest.id);
-            return (
-              <label key={moduleDefinition.manifest.id} className="settings-list__item">
-                <strong>{moduleDefinition.manifest.title}</strong>
-                <input
-                  className="settings-list__toggle"
-                  type="checkbox"
-                  checked={enabled}
-                  onChange={() => toggleModuleEnabled(moduleDefinition.manifest.id)}
-                />
-                <span className="settings-list__slider" aria-hidden="true" />
-              </label>
-            );
-          })}
-        </div>
+          <div className="settings-list">
+            <label className="settings-list__item">
+              <span className="settings-list__copy">
+                <strong>{"\u5f00\u673a\u542f\u52a8"}</strong>
+                <p>{"\u767b\u5f55 Windows \u540e\u81ea\u52a8\u542f\u52a8\u7caa\u5e93\u5e76\u4fdd\u6301\u6258\u76d8\u5e38\u9a7b\u3002"}</p>
+              </span>
+              <input
+                className="settings-list__toggle"
+                type="checkbox"
+                aria-label={"\u5f00\u673a\u542f\u52a8"}
+                checked={appSettings.launchOnStartup}
+                disabled={isStartupSwitching}
+                onChange={toggleLaunchOnStartup}
+              />
+              <span className="settings-list__slider" aria-hidden="true" />
+            </label>
+          </div>
+
+          {startupError ? (
+            <p className="settings-card__error" role="status">
+              {startupError}
+            </p>
+          ) : null}
+        </section>
+
+        <section className="settings-card">
+          <div className="settings-compact__head">
+            <div>
+              <p className="drawer-card__eyebrow">Workspace</p>
+              <h3>{"\u62bd\u5c49\u6a21\u5757"}</h3>
+            </div>
+            <span className="drawer-card__meta">
+              {enabledModuleIds.length} / {modules.length}
+            </span>
+          </div>
+
+          <div className="settings-drawer-groups">
+            {railItems.map((railItem) => {
+              const groupedModules = railItem.moduleIds
+                .map((moduleId) => moduleById.get(moduleId))
+                .filter((moduleDefinition): moduleDefinition is NonNullable<typeof moduleDefinition> =>
+                  Boolean(moduleDefinition),
+                );
+
+              return (
+                <section
+                  key={railItem.id}
+                  className="settings-drawer-group"
+                  aria-label={`${railItem.label} \u8bbe\u7f6e\u680f`}
+                >
+                  <div className="settings-drawer-group__head">
+                    <span
+                      className={`shell__toolset-logo shell__toolset-logo--${railItem.logo}`}
+                      aria-hidden="true"
+                    >
+                      <span />
+                      <span />
+                      <span />
+                    </span>
+                    <strong>{railItem.label}</strong>
+                  </div>
+
+                  <div className="settings-list settings-list--nested">
+                    {groupedModules.length > 0 ? (
+                      groupedModules.map((moduleDefinition) => {
+                        const enabled = enabledModuleIds.includes(moduleDefinition.manifest.id);
+                        return (
+                          <label
+                            key={moduleDefinition.manifest.id}
+                            className="settings-list__item"
+                          >
+                            <span className="settings-list__copy">
+                              <strong>{moduleDefinition.manifest.title}</strong>
+                              {moduleDefinition.manifest.description ? (
+                                <p>{moduleDefinition.manifest.description}</p>
+                              ) : null}
+                            </span>
+                            <input
+                              className="settings-list__toggle"
+                              type="checkbox"
+                              aria-label={moduleDefinition.manifest.title}
+                              checked={enabled}
+                              onChange={() => toggleModuleEnabled(moduleDefinition.manifest.id)}
+                            />
+                            <span className="settings-list__slider" aria-hidden="true" />
+                          </label>
+                        );
+                      })
+                    ) : (
+                      <p className="settings-drawer-group__empty">{"\u6682\u65e0\u6a21\u5757"}</p>
+                    )}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        </section>
       </div>
     </ShellContent>
   );
+}
+
+function readableError(error: unknown, fallback: string) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  return fallback;
 }
 
 export function AppShell() {
@@ -187,10 +358,32 @@ export function AppShell() {
   }, [initialize]);
 
   useEffect(() => {
+    const disableContextMenu = (event: MouseEvent) => {
+      event.preventDefault();
+    };
+
+    window.addEventListener("contextmenu", disableContextMenu);
+    return () => {
+      window.removeEventListener("contextmenu", disableContextMenu);
+    };
+  }, []);
+
+  useEffect(() => {
     let removeListener: (() => void) | undefined;
     let removeRevealListener: (() => void) | undefined;
 
-    void listen<ShellNavigationPayload>("shell:navigate", (event) => {
+    const applyNavigation = (payload?: ShellNavigationPayload) => {
+      const nextView = payload?.view;
+      if (nextView) {
+        setActiveView(nextView);
+      }
+    };
+
+    void invoke<ShellNavigationPayload>("app_shell_navigation")
+      .then(applyNavigation)
+      .catch(() => undefined);
+
+    void listen<ShellNavigationPayload>(SHELL_NAVIGATION_EVENT, (event) => {
       const nextView = event.payload?.view;
       if (nextView) {
         setActiveView(nextView);

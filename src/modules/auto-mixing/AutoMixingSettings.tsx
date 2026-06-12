@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { Ban, ChevronLeft, ListPlus, Plus, Search, Volume2, X } from "lucide-react";
 import type { ModuleSettingsProps } from "@/app/registry/moduleTypes";
 import {
+  autoMixingMusicAppLibrary,
   autoMixingSettingsEqual,
   normalizeAutoMixingSettings,
+  normalizeExecutableName,
+  type AutoMixingLibraryApp,
   type AutoMixingSettings,
 } from "@/modules/auto-mixing/defaults";
 
@@ -15,48 +19,64 @@ type AutoMixingTarget = {
   isRunning: boolean;
 };
 
-type AutoMixingDiagnosticSession = {
-  sessionKey: string;
+type SettingsPage = "select" | "add" | "exclude";
+type CandidateAction = "select" | "exclude";
+
+type CandidateEntry = {
   executableName: string;
   displayName: string;
-  processId?: number;
-  active: boolean;
-  audible: boolean;
-  peakValue: number;
-  currentVolume: number;
+  note: string;
+  aliases: string[];
+  live: boolean;
 };
 
-type AutoMixingDuckedSession = {
-  sessionKey: string;
-  executableName: string;
-  displayName: string;
-  processId?: number;
-  currentVolume: number;
-  originalVolume: number;
-  expectedDuckedVolume: number;
-  manualOverride: boolean;
-};
+const RECOMMENDED_EXECUTABLES = [
+  "spotify.exe",
+  "qqmusic.exe",
+  "cloudmusic.exe",
+  "applemusic.exe",
+  "foobar2000.exe",
+];
 
-type AutoMixingDiagnostics = {
-  currentSessions: AutoMixingDiagnosticSession[];
-  duckedSessions: AutoMixingDuckedSession[];
-};
+function targetLabel(target: { displayName: string; executableName: string }) {
+  return target.displayName || target.executableName.replace(/\.exe$/i, "");
+}
 
-type CachedSession = AutoMixingDiagnosticSession & {
-  cachedAt: number;
-};
+function uniqueByExecutable<T extends { executableName: string }>(entries: T[]) {
+  const seen = new Set<string>();
+  return entries.filter((entry) => {
+    if (seen.has(entry.executableName)) {
+      return false;
+    }
 
-const SESSION_CACHE_MS = 8_000;
+    seen.add(entry.executableName);
+    return true;
+  });
+}
 
-function normalizeExecutable(value: string) {
+function normalizeSearchText(value: string) {
   return value.trim().toLowerCase();
+}
+
+function matchesCandidate(candidate: CandidateEntry, query: string) {
+  if (!query) {
+    return false;
+  }
+
+  const haystacks = [
+    candidate.displayName,
+    candidate.executableName,
+    ...candidate.aliases,
+  ].map((entry) => normalizeSearchText(entry));
+
+  return haystacks.some((entry) => entry.includes(query));
 }
 
 function withSelectedRule(
   settings: AutoMixingSettings,
   executableName: string,
 ): AutoMixingSettings {
-  const normalizedExecutable = normalizeExecutable(executableName);
+  const normalizedExecutable = normalizeExecutableName(executableName);
 
   return {
     ...settings,
@@ -73,7 +93,7 @@ function withBlockedRule(
   settings: AutoMixingSettings,
   executableName: string,
 ): AutoMixingSettings {
-  const normalizedExecutable = normalizeExecutable(executableName);
+  const normalizedExecutable = normalizeExecutableName(executableName);
 
   return {
     ...settings,
@@ -90,7 +110,7 @@ function withoutRule(
   settings: AutoMixingSettings,
   executableName: string,
 ): AutoMixingSettings {
-  const normalizedExecutable = normalizeExecutable(executableName);
+  const normalizedExecutable = normalizeExecutableName(executableName);
 
   return {
     ...settings,
@@ -103,165 +123,184 @@ function withoutRule(
   };
 }
 
-function targetLabel(target: AutoMixingTarget) {
-  return target.displayName || target.executableName.replace(/\.exe$/i, "");
-}
-
-function mergeRuleOnlyTargets(
-  targets: AutoMixingTarget[],
-  settings: AutoMixingSettings,
-): AutoMixingTarget[] {
-  const knownTargets = new Set(targets.map((target) => target.executableName));
-  const ruleOnlyTargets = [
-    ...settings.anchorExecutables,
-    ...settings.excludedExecutables,
-  ]
-    .filter((entry, index, list) => list.indexOf(entry) === index)
-    .filter((entry) => !knownTargets.has(entry))
-    .map((entry) => ({
-      executableName: entry,
-      displayName: entry.replace(/\.exe$/i, ""),
-      hasAudioSession: false,
-      isRunning: false,
-    }));
-
-  return [...targets, ...ruleOnlyTargets];
-}
-
-function describeTarget(target: AutoMixingTarget) {
-  if (target.hasAudioSession) {
-    return "当前有音频会话，是否正在出声以诊断里的 peak 为准";
-  }
-
-  if (target.isRunning) {
-    return "当前正在运行，等待它重新出现在音量合成器";
-  }
-
-  return "规则已保存，等待它下次出现在音量合成器";
-}
-
-function SourceList({
-  targets,
-  onMoveToSelected,
-  onMoveToBlocked,
+function PageHeader({
+  title,
+  eyebrow,
+  locked,
+  onBack,
 }: {
-  targets: AutoMixingTarget[];
-  onMoveToSelected: (executableName: string) => void;
-  onMoveToBlocked: (executableName: string) => void;
+  title: string;
+  eyebrow: string;
+  locked: boolean;
+  onBack?: () => void;
 }) {
   return (
-    <div className="auto-mixing-source-list" role="list" aria-label="可添加的应用">
-      {targets.length === 0 ? (
-        <div className="auto-mixing-empty">当前没有新的可添加应用。</div>
-      ) : (
-        targets.map((target) => (
-          <div
-            key={target.executableName}
-            className="auto-mixing-source-item"
-            role="listitem"
-          >
-            <div className="auto-mixing-source-item__copy">
-              <strong>{targetLabel(target)}</strong>
-              <span>{target.executableName}</span>
-            </div>
-            <div className="auto-mixing-source-item__meta">
-              <em>{target.hasAudioSession ? "有会话" : "未出声"}</em>
-            </div>
-            <div className="auto-mixing-source-item__actions">
-              <button
-                type="button"
-                className="auto-mixing-action auto-mixing-action--primary"
-                onClick={() => onMoveToSelected(target.executableName)}
-              >
-                设为BGM目标
-              </button>
-              <button
-                type="button"
-                className="auto-mixing-action"
-                onClick={() => onMoveToBlocked(target.executableName)}
-              >
-                忽略此声音
-              </button>
-            </div>
-          </div>
-        ))
-      )}
+    <div className="auto-mixing-settings-head">
+      {onBack ? (
+        <button
+          type="button"
+          className="auto-mixing-icon-button"
+          aria-label="返回选择应用"
+          onClick={onBack}
+        >
+          <ChevronLeft size={16} />
+        </button>
+      ) : null}
+      <div className="auto-mixing-settings-head__copy">
+        <span>{eyebrow}</span>
+        <h3>{title}</h3>
+      </div>
+      <em>{locked ? "运行中，关闭后可编辑" : "关闭时可编辑"}</em>
     </div>
   );
 }
 
-function RuleList({
-  title,
-  emptyLabel,
-  entries,
-  onMoveToSelected,
-  onMoveToBlocked,
+function SelectedAppRow({
+  candidate,
+  disabled,
   onRemove,
 }: {
-  title: string;
-  emptyLabel: string;
-  entries: AutoMixingTarget[];
-  onMoveToSelected: (executableName: string) => void;
-  onMoveToBlocked: (executableName: string) => void;
+  candidate: CandidateEntry;
+  disabled: boolean;
   onRemove: (executableName: string) => void;
 }) {
   return (
-    <div className="auto-mixing-rule-panel">
-      <div className="auto-mixing-rule-panel__header">
-        <strong>{title}</strong>
+    <div className="auto-mixing-app-row" role="listitem" data-live={candidate.live}>
+      <span className="auto-mixing-app-row__signal" aria-hidden="true" />
+      <div className="auto-mixing-app-row__copy">
+        <strong>{targetLabel(candidate)}</strong>
+        <span>{candidate.executableName}</span>
       </div>
-      <div className="auto-mixing-list" role="list">
+      <button
+        type="button"
+        className="auto-mixing-icon-button auto-mixing-icon-button--quiet"
+        disabled={disabled}
+        aria-label={`Remove ${candidate.executableName} from selected apps`}
+        onClick={() => onRemove(candidate.executableName)}
+      >
+        <X size={14} />
+      </button>
+    </div>
+  );
+}
+
+function CandidateRow({
+  candidate,
+  action,
+  disabled,
+  onAction,
+}: {
+  candidate: CandidateEntry;
+  action: CandidateAction;
+  disabled: boolean;
+  onAction: (executableName: string) => void;
+}) {
+  const isSelectAction = action === "select";
+
+  return (
+    <div className="auto-mixing-candidate-row" role="listitem" data-live={candidate.live}>
+      <span className="auto-mixing-candidate-row__signal" aria-hidden="true" />
+      <div className="auto-mixing-candidate-row__copy">
+        <strong>{targetLabel(candidate)}</strong>
+        <span>{candidate.executableName}</span>
+        <em>{candidate.note}</em>
+      </div>
+      <button
+        type="button"
+        className={
+          isSelectAction
+            ? "auto-mixing-icon-button auto-mixing-icon-button--primary"
+            : "auto-mixing-icon-button"
+        }
+        disabled={disabled}
+        aria-label={
+          isSelectAction
+            ? `Add ${candidate.executableName} to selected apps`
+            : `Exclude ${candidate.executableName} from triggers`
+        }
+        onClick={() => onAction(candidate.executableName)}
+      >
+        {isSelectAction ? <Plus size={15} /> : <Ban size={15} />}
+      </button>
+    </div>
+  );
+}
+
+function NavEntry({
+  icon,
+  title,
+  meta,
+  onClick,
+}: {
+  icon: ReactNode;
+  title: string;
+  meta: string;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" className="auto-mixing-nav-entry" onClick={onClick}>
+      <span className="auto-mixing-nav-entry__icon" aria-hidden="true">
+        {icon}
+      </span>
+      <span className="auto-mixing-nav-entry__copy">
+        <strong>{title}</strong>
+        <em>{meta}</em>
+      </span>
+      <ChevronLeft size={15} aria-hidden="true" />
+    </button>
+  );
+}
+
+function CandidateGroup({
+  title,
+  emptyLabel,
+  entries,
+  action,
+  disabled,
+  onAction,
+}: {
+  title: string;
+  emptyLabel: string;
+  entries: CandidateEntry[];
+  action: CandidateAction;
+  disabled: boolean;
+  onAction: (executableName: string) => void;
+}) {
+  return (
+    <section className="auto-mixing-candidate-group">
+      <div className="auto-mixing-candidate-group__head">
+        <strong>{title}</strong>
+        <span>{entries.length}</span>
+      </div>
+      <div className="auto-mixing-candidate-list" role="list">
         {entries.length === 0 ? (
           <div className="auto-mixing-empty">{emptyLabel}</div>
         ) : (
-          entries.map((target) => (
-            <div className="auto-mixing-target" key={`${title}-${target.executableName}`} role="listitem">
-              <div className="auto-mixing-target__copy">
-                <strong>{targetLabel(target)}</strong>
-                <span>{target.executableName}</span>
-                <em>{describeTarget(target)}</em>
-              </div>
-              <div className="auto-mixing-target__actions">
-                <button
-                  type="button"
-                  className="auto-mixing-action auto-mixing-action--primary"
-                  onClick={() => onMoveToSelected(target.executableName)}
-                >
-                  设为BGM目标
-                </button>
-                <button
-                  type="button"
-                  className="auto-mixing-action"
-                  onClick={() => onMoveToBlocked(target.executableName)}
-                >
-                  忽略此声音
-                </button>
-                <button
-                  type="button"
-                  className="auto-mixing-action auto-mixing-action--quiet"
-                  onClick={() => onRemove(target.executableName)}
-                >
-                  移除
-                </button>
-              </div>
-            </div>
+          entries.map((candidate) => (
+            <CandidateRow
+              key={`${title}-${candidate.executableName}`}
+              candidate={candidate}
+              action={action}
+              disabled={disabled}
+              onAction={onAction}
+            />
           ))
         )}
       </div>
-    </div>
+    </section>
   );
 }
 
 export function AutoMixingSettings({
   settings,
+  disabled = false,
   onChange,
 }: ModuleSettingsProps<AutoMixingSettings>) {
   const normalizedSettings = normalizeAutoMixingSettings(settings);
-  const [currentSessions, setCurrentSessions] = useState<AutoMixingDiagnosticSession[]>([]);
-  const [duckedSessions, setDuckedSessions] = useState<AutoMixingDuckedSession[]>([]);
-  const [cachedSessions, setCachedSessions] = useState<Record<string, CachedSession>>({});
+  const [page, setPage] = useState<SettingsPage>("select");
+  const [scannedTargets, setScannedTargets] = useState<AutoMixingTarget[]>([]);
   const [listError, setListError] = useState<string | null>(null);
-  const [diagnosticsExpanded, setDiagnosticsExpanded] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     if (!autoMixingSettingsEqual(normalizedSettings, settings)) {
@@ -274,43 +313,28 @@ export function AutoMixingSettings({
 
     const syncTargets = async () => {
       try {
-        const diagnostics = await invoke<AutoMixingDiagnostics>("auto_mixing_diagnostics");
+        const targets = await invoke<AutoMixingTarget[]>("auto_mixing_list_targets");
         if (cancelled) {
           return;
         }
 
-        setCurrentSessions(diagnostics.currentSessions);
-        setDuckedSessions(diagnostics.duckedSessions);
-        setCachedSessions((currentCache) => {
-          const now = Date.now();
-          const nextCache: Record<string, CachedSession> = {};
-
-          for (const session of diagnostics.currentSessions) {
-            nextCache[session.sessionKey] = {
-              ...session,
-              cachedAt: now,
-            };
-          }
-
-          for (const session of Object.values(currentCache)) {
-            if (nextCache[session.sessionKey]) {
-              continue;
-            }
-
-            if (now - session.cachedAt <= SESSION_CACHE_MS) {
-              nextCache[session.sessionKey] = session;
-            }
-          }
-
-          return nextCache;
-        });
+        setScannedTargets(
+          uniqueByExecutable(
+            targets.map((target) => ({
+              ...target,
+              executableName: normalizeExecutableName(target.executableName),
+            })),
+          ),
+        );
         setListError(null);
       } catch (error) {
         if (cancelled) {
           return;
         }
 
-        setListError(error instanceof Error ? error.message : "读取音量合成器失败");
+        setListError(
+          error instanceof Error ? error.message : "扫描当前发声应用失败",
+        );
       }
     };
 
@@ -323,69 +347,9 @@ export function AutoMixingSettings({
     };
   }, []);
 
-  const targets = useMemo<AutoMixingTarget[]>(
-    () => {
-      const currentSessionKeys = new Set(
-        currentSessions.map((session) => session.sessionKey),
-      );
-
-      return Object.values(cachedSessions).map((session) => ({
-        executableName: session.executableName,
-        displayName: session.displayName,
-        processId: session.processId,
-        hasAudioSession: currentSessionKeys.has(session.sessionKey),
-        isRunning: true,
-      }));
-    },
-    [cachedSessions, currentSessions],
-  );
-
-  const mixerTargets = useMemo(() => {
-    return [...targets].sort((left, right) => {
-      return Number(right.hasAudioSession) - Number(left.hasAudioSession) ||
-        targetLabel(left).localeCompare(targetLabel(right)) ||
-        left.executableName.localeCompare(right.executableName);
-    });
-  }, [targets]);
-
-  const allTargets = useMemo(() => {
-    const merged = mergeRuleOnlyTargets(targets, normalizedSettings);
-    return merged.sort((left, right) => {
-      return Number(right.hasAudioSession) - Number(left.hasAudioSession) ||
-        targetLabel(left).localeCompare(targetLabel(right)) ||
-        left.executableName.localeCompare(right.executableName);
-    });
-  }, [normalizedSettings, targets]);
-
-  const selectedTargets = useMemo(
-    () =>
-      normalizedSettings.anchorExecutables.map((entry) => {
-        return (
-          allTargets.find((target) => target.executableName === entry) ?? {
-            executableName: entry,
-            displayName: entry.replace(/\.exe$/i, ""),
-            hasAudioSession: false,
-            isRunning: false,
-          }
-        );
-      }),
-    [allTargets, normalizedSettings.anchorExecutables],
-  );
-
-  const blockedTargets = useMemo(
-    () =>
-      normalizedSettings.excludedExecutables.map((entry) => {
-        return (
-          allTargets.find((target) => target.executableName === entry) ?? {
-            executableName: entry,
-            displayName: entry.replace(/\.exe$/i, ""),
-            hasAudioSession: false,
-            isRunning: false,
-          }
-        );
-      }),
-    [allTargets, normalizedSettings.excludedExecutables],
-  );
+  useEffect(() => {
+    setSearchQuery("");
+  }, [page]);
 
   const configuredExecutables = useMemo(
     () =>
@@ -396,161 +360,437 @@ export function AutoMixingSettings({
     [normalizedSettings.anchorExecutables, normalizedSettings.excludedExecutables],
   );
 
-  const availableTargets = useMemo(
-    () =>
-      mixerTargets.filter(
-        (target) => !configuredExecutables.has(target.executableName),
-      ),
-    [configuredExecutables, mixerTargets],
+  const excludedExecutableSet = useMemo(
+    () => new Set(normalizedSettings.excludedExecutables),
+    [normalizedSettings.excludedExecutables],
   );
+
+  const libraryMap = useMemo(
+    () =>
+      new Map(
+        autoMixingMusicAppLibrary.map((entry) => [
+          entry.executableName,
+          entry,
+        ]),
+      ),
+    [],
+  );
+
+  const scannedMap = useMemo(
+    () =>
+      new Map(
+        scannedTargets.map((entry) => [
+          entry.executableName,
+          entry,
+        ]),
+      ),
+    [scannedTargets],
+  );
+
+  const describeConfiguredEntry = (executableName: string): CandidateEntry => {
+    const libraryEntry = libraryMap.get(executableName);
+    const scannedEntry = scannedMap.get(executableName);
+
+    if (scannedEntry) {
+      return {
+        executableName,
+        displayName: scannedEntry.displayName,
+        note: scannedEntry.hasAudioSession
+          ? "当前已扫描到音频会话"
+          : "当前正在运行",
+        aliases: libraryEntry?.aliases ?? [],
+        live: true,
+      };
+    }
+
+    if (libraryEntry) {
+      return {
+        executableName,
+        displayName: libraryEntry.displayName,
+        note: "来自常用音乐应用",
+        aliases: libraryEntry.aliases,
+        live: false,
+      };
+    }
+
+    return {
+      executableName,
+      displayName: executableName.replace(/\.exe$/i, ""),
+      note: "手动添加的应用规则",
+      aliases: [],
+      live: false,
+    };
+  };
+
+  const selectedTargets = useMemo(
+    () =>
+      normalizedSettings.anchorExecutables.map((entry) =>
+        describeConfiguredEntry(entry),
+      ),
+    [normalizedSettings.anchorExecutables, scannedMap],
+  );
+
+  const excludedTargets = useMemo(
+    () =>
+      normalizedSettings.excludedExecutables.map((entry) =>
+        describeConfiguredEntry(entry),
+      ),
+    [normalizedSettings.excludedExecutables, scannedMap],
+  );
+
+  const libraryEntries = useMemo(
+    () =>
+      autoMixingMusicAppLibrary.map((entry) => ({
+        executableName: entry.executableName,
+        displayName: entry.displayName,
+        note: "常用音乐应用",
+        aliases: entry.aliases,
+        live: Boolean(scannedMap.get(entry.executableName)?.hasAudioSession),
+      })),
+    [scannedMap],
+  );
+
+  const scannedEntries = useMemo(
+    () =>
+      scannedTargets.map((entry) => ({
+        executableName: entry.executableName,
+        displayName: entry.displayName,
+        note: entry.hasAudioSession ? "当前有音频会话" : "当前正在运行",
+        aliases: libraryMap.get(entry.executableName)?.aliases ?? [],
+        live: entry.hasAudioSession,
+      })),
+    [libraryMap, scannedTargets],
+  );
+
+  const selectableScannedCandidates = useMemo(
+    () =>
+      scannedEntries.filter(
+        (entry) => !configuredExecutables.has(entry.executableName),
+      ),
+    [configuredExecutables, scannedEntries],
+  );
+
+  const selectableLibraryCandidates = useMemo(
+    () =>
+      libraryEntries.filter(
+        (entry) => !configuredExecutables.has(entry.executableName),
+      ),
+    [configuredExecutables, libraryEntries],
+  );
+
+  const excludeScannedCandidates = useMemo(
+    () =>
+      scannedEntries.filter(
+        (entry) => !excludedExecutableSet.has(entry.executableName),
+      ),
+    [excludedExecutableSet, scannedEntries],
+  );
+
+  const excludeLibraryCandidates = useMemo(
+    () =>
+      libraryEntries.filter(
+        (entry) => !excludedExecutableSet.has(entry.executableName),
+      ),
+    [excludedExecutableSet, libraryEntries],
+  );
+
+  const recommendedCandidates = useMemo(
+    () =>
+      RECOMMENDED_EXECUTABLES.map((executableName) =>
+        libraryEntries.find((entry) => entry.executableName === executableName),
+      )
+        .filter((entry): entry is CandidateEntry => Boolean(entry))
+        .filter((entry) => !configuredExecutables.has(entry.executableName))
+        .slice(0, 5),
+    [configuredExecutables, libraryEntries],
+  );
+
+  const searchCandidates = useMemo(() => {
+    const query = normalizeSearchText(searchQuery);
+    if (!query) {
+      return [];
+    }
+
+    const isExcludePage = page === "exclude";
+    const pool = uniqueByExecutable<CandidateEntry>([
+      ...(isExcludePage ? excludeScannedCandidates : selectableScannedCandidates),
+      ...(isExcludePage ? excludeLibraryCandidates : selectableLibraryCandidates),
+      ...autoMixingMusicAppLibrary.map((entry: AutoMixingLibraryApp) => ({
+        executableName: entry.executableName,
+        displayName: entry.displayName,
+        note: "常用音乐应用",
+        aliases: entry.aliases,
+        live: Boolean(scannedMap.get(entry.executableName)?.hasAudioSession),
+      })),
+    ]).filter((entry) =>
+      isExcludePage
+        ? !excludedExecutableSet.has(entry.executableName)
+        : !configuredExecutables.has(entry.executableName),
+    );
+
+    const matched = pool.filter((entry) => matchesCandidate(entry, query)).slice(0, 8);
+    const typedExecutable = normalizeExecutableName(searchQuery);
+    const canAddTyped = isExcludePage
+      ? typedExecutable && !excludedExecutableSet.has(typedExecutable)
+      : typedExecutable && !configuredExecutables.has(typedExecutable);
+
+    if (
+      canAddTyped &&
+      !matched.some((entry) => entry.executableName === typedExecutable)
+    ) {
+      matched.push({
+        executableName: typedExecutable,
+        displayName: typedExecutable.replace(/\.exe$/i, ""),
+        note: "按输入结果手动添加",
+        aliases: [],
+        live: false,
+      });
+    }
+
+    return matched;
+  }, [
+    configuredExecutables,
+    excludeLibraryCandidates,
+    excludeScannedCandidates,
+    excludedExecutableSet,
+    page,
+    scannedMap,
+    searchQuery,
+    selectableLibraryCandidates,
+    selectableScannedCandidates,
+  ]);
 
   const updateSettings = (nextSettings: AutoMixingSettings) => {
     onChange(nextSettings);
   };
 
-  const selectedCount =
-    normalizedSettings.anchorExecutables.length +
-    normalizedSettings.excludedExecutables.length;
+  const selectExecutable = (entry: string) => {
+    updateSettings(withSelectedRule(normalizedSettings, entry));
+  };
+
+  const excludeExecutable = (entry: string) => {
+    updateSettings(withBlockedRule(normalizedSettings, entry));
+  };
+
+  const removeExecutable = (entry: string) => {
+    updateSettings(withoutRule(normalizedSettings, entry));
+  };
+
+  const renderSearch = () => (
+    <label className="auto-mixing-search auto-mixing-search--compact">
+      <Search size={14} aria-hidden="true" />
+      <input
+        type="text"
+        value={searchQuery}
+        disabled={disabled}
+        aria-label="Search app candidates"
+        placeholder="搜索应用名或输入 exe"
+        onChange={(event) => setSearchQuery(event.target.value)}
+      />
+    </label>
+  );
+
+  if (page === "add") {
+    return (
+      <div className="settings-flow auto-mixing-shell" data-locked={disabled}>
+        <section className="settings-section auto-mixing-console">
+          <PageHeader
+            title="添加应用"
+            eyebrow="Auto Mixing"
+            locked={disabled}
+            onBack={() => setPage("select")}
+          />
+
+          {renderSearch()}
+
+          {listError ? (
+            <div className="auto-mixing-empty auto-mixing-empty--error">{listError}</div>
+          ) : null}
+
+          {searchQuery.trim() ? (
+            <CandidateGroup
+              title="搜索结果"
+              emptyLabel="没有匹配项。可以继续输入更完整的应用名或 exe。"
+              entries={searchCandidates}
+              action="select"
+              disabled={disabled}
+              onAction={selectExecutable}
+            />
+          ) : (
+            <>
+              <CandidateGroup
+                title="正在发声"
+                emptyLabel="当前还没有扫描到新的发声应用。"
+                entries={selectableScannedCandidates}
+                action="select"
+                disabled={disabled}
+                onAction={selectExecutable}
+              />
+              <CandidateGroup
+                title="常用音乐应用"
+                emptyLabel="常用候选都已经被分配到规则里了。"
+                entries={selectableLibraryCandidates}
+                action="select"
+                disabled={disabled}
+                onAction={selectExecutable}
+              />
+            </>
+          )}
+        </section>
+      </div>
+    );
+  }
+
+  if (page === "exclude") {
+    return (
+      <div className="settings-flow auto-mixing-shell" data-locked={disabled}>
+        <section className="settings-section auto-mixing-console">
+          <PageHeader
+            title="排除应用"
+            eyebrow="Auto Mixing"
+            locked={disabled}
+            onBack={() => setPage("select")}
+          />
+
+          <div className="auto-mixing-selected-list" role="list" aria-label="Excluded apps">
+            {excludedTargets.length === 0 ? (
+              <div className="auto-mixing-empty">还没有排除应用。</div>
+            ) : (
+              excludedTargets.map((candidate) => (
+                <SelectedAppRow
+                  key={`excluded-${candidate.executableName}`}
+                  candidate={candidate}
+                  disabled={disabled}
+                  onRemove={removeExecutable}
+                />
+              ))
+            )}
+          </div>
+
+          {renderSearch()}
+
+          {searchQuery.trim() ? (
+            <CandidateGroup
+              title="搜索结果"
+              emptyLabel="没有匹配项。可以继续输入更完整的应用名或 exe。"
+              entries={searchCandidates}
+              action="exclude"
+              disabled={disabled}
+              onAction={excludeExecutable}
+            />
+          ) : (
+            <>
+              <CandidateGroup
+                title="正在发声"
+                emptyLabel="当前还没有可排除的发声应用。"
+                entries={excludeScannedCandidates}
+                action="exclude"
+                disabled={disabled}
+                onAction={excludeExecutable}
+              />
+              <CandidateGroup
+                title="常用应用"
+                emptyLabel="没有更多可排除候选。"
+                entries={excludeLibraryCandidates}
+                action="exclude"
+                disabled={disabled}
+                onAction={excludeExecutable}
+              />
+            </>
+          )}
+        </section>
+      </div>
+    );
+  }
 
   return (
-    <div className="settings-flow">
-      <section
-        id="auto-mixing-source-area"
-        className="settings-section settings-flow__section auto-mixing-section auto-mixing-section--selected"
-      >
-        <div className="auto-mixing-panel-heading">
-          <div>
-            <h3>已选择应用</h3>
-            <span>{selectedCount} 个规则</span>
+    <div className="settings-flow auto-mixing-shell" data-locked={disabled}>
+      <section className="settings-section auto-mixing-console">
+        <PageHeader title="选择应用" eyebrow="Auto Mixing" locked={disabled} />
+
+        <div className="auto-mixing-selected-panel">
+          <div className="auto-mixing-selected-panel__head">
+            <strong>被压低的应用</strong>
+            <span>{selectedTargets.length}</span>
           </div>
-          <em>系统音量合成器</em>
-        </div>
 
-        {listError ? <div className="auto-mixing-empty auto-mixing-empty--error">{listError}</div> : null}
-
-        <div className="auto-mixing-rule-grid">
-          <RuleList
-            title="BGM目标"
-            emptyLabel="还没有会被自动压低的 BGM 应用。"
-            entries={selectedTargets}
-            onMoveToSelected={(entry) =>
-              updateSettings(withSelectedRule(normalizedSettings, entry))
-            }
-            onMoveToBlocked={(entry) =>
-              updateSettings(withBlockedRule(normalizedSettings, entry))
-            }
-            onRemove={(entry) => updateSettings(withoutRule(normalizedSettings, entry))}
-          />
-
-          <RuleList
-            title="忽略触发"
-            emptyLabel="还没有被忽略的触发应用。"
-            entries={blockedTargets}
-            onMoveToSelected={(entry) =>
-              updateSettings(withSelectedRule(normalizedSettings, entry))
-            }
-            onMoveToBlocked={(entry) =>
-              updateSettings(withBlockedRule(normalizedSettings, entry))
-            }
-            onRemove={(entry) => updateSettings(withoutRule(normalizedSettings, entry))}
-          />
-        </div>
-      </section>
-
-      <section className="settings-section auto-mixing-section auto-mixing-section--add">
-        <div className="auto-mixing-panel-heading">
-          <div>
-            <h3>添加应用</h3>
-            <span>{availableTargets.length} 个可添加</span>
+          <div className="auto-mixing-selected-list" role="list" aria-label="Selected apps">
+            {selectedTargets.length === 0 ? (
+              <div className="auto-mixing-selection-empty">
+                <strong>还没有选择应用</strong>
+                <span>先选择一个音乐或背景声应用，再打开卡片开关。</span>
+              </div>
+            ) : (
+              selectedTargets.map((candidate) => (
+                <SelectedAppRow
+                  key={`selected-${candidate.executableName}`}
+                  candidate={candidate}
+                  disabled={disabled}
+                  onRemove={removeExecutable}
+                />
+              ))
+            )}
           </div>
-          <em>实时会话</em>
         </div>
 
-        <SourceList
-          targets={availableTargets}
-          onMoveToSelected={(entry) =>
-            updateSettings(withSelectedRule(normalizedSettings, entry))
-          }
-          onMoveToBlocked={(entry) =>
-            updateSettings(withBlockedRule(normalizedSettings, entry))
-          }
-        />
-      </section>
+        {recommendedCandidates.length > 0 ? (
+          <div className="auto-mixing-recommend-strip" role="list" aria-label="Recommended apps">
+            {recommendedCandidates.map((candidate) => (
+              <button
+                key={`recommended-${candidate.executableName}`}
+                type="button"
+                className="auto-mixing-recommend-chip"
+                disabled={disabled}
+                aria-label={`Add ${candidate.executableName} to selected apps`}
+                onClick={() => selectExecutable(candidate.executableName)}
+              >
+                <Plus size={13} aria-hidden="true" />
+                <span>{targetLabel(candidate)}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
 
-      <section className="settings-section auto-mixing-section">
-        <div className="auto-mixing-diagnostics__header-row">
-          <div className="settings-section__header">
-            <h3>运行时诊断</h3>
-            <p>默认折叠。这里只展示系统当前读到的会话，以及当前真正被压低的目标。</p>
+        <div className="auto-mixing-nav-list">
+          <NavEntry
+            icon={<ListPlus size={16} />}
+            title="添加应用"
+            meta="扫描、常用库、手动 exe"
+            onClick={() => setPage("add")}
+          />
+          <NavEntry
+            icon={<Ban size={16} />}
+            title="排除应用"
+            meta={`${excludedTargets.length} 个应用`}
+            onClick={() => setPage("exclude")}
+          />
+        </div>
+
+        <div className="auto-mixing-system-toggle">
+          <span className="auto-mixing-system-toggle__icon" aria-hidden="true">
+            <Volume2 size={16} />
+          </span>
+          <div className="auto-mixing-system-toggle__copy">
+            <strong>系统声音触发</strong>
+            <span>通知音、提示音也参与触发判断。</span>
           </div>
           <button
             type="button"
-            className="auto-mixing-action auto-mixing-action--quiet"
-            aria-expanded={diagnosticsExpanded}
-            onClick={() => setDiagnosticsExpanded((value) => !value)}
+            className="auto-mixing-toggle-chip"
+            data-active={normalizedSettings.systemSoundsTriggerEnabled}
+            disabled={disabled}
+            aria-label="Toggle system sounds trigger"
+            onClick={() =>
+              updateSettings({
+                ...normalizedSettings,
+                systemSoundsTriggerEnabled:
+                  !normalizedSettings.systemSoundsTriggerEnabled,
+              })
+            }
           >
-            {diagnosticsExpanded ? "收起诊断" : "展开诊断"}
+            {normalizedSettings.systemSoundsTriggerEnabled ? "开启" : "关闭"}
           </button>
         </div>
-
-        {diagnosticsExpanded ? (
-          <div className="auto-mixing-diagnostics">
-            <div className="auto-mixing-rule-panel">
-              <div className="auto-mixing-rule-panel__header">
-                <strong>当前会话</strong>
-              </div>
-              <div className="auto-mixing-list" role="list">
-                {currentSessions.length === 0 ? (
-                  <div className="auto-mixing-empty">系统音量合成器当前没有可见会话。</div>
-                ) : (
-                  currentSessions.map((session) => (
-                    <div
-                      className="auto-mixing-target"
-                      key={`session-${session.sessionKey}`}
-                      role="listitem"
-                    >
-                      <div className="auto-mixing-target__copy">
-                        <strong>{session.displayName || session.executableName}</strong>
-                        <span>{session.executableName}</span>
-                        <em>
-                          {session.audible ? "当前出声" : "当前未出声"} · state {session.active ? "Active" : "Inactive"} · peak {Math.round(session.peakValue * 1000) / 10}% · 音量 {Math.round(session.currentVolume * 100)}%
-                        </em>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            <div className="auto-mixing-rule-panel">
-              <div className="auto-mixing-rule-panel__header">
-                <strong>当前被压低的BGM</strong>
-              </div>
-              <div className="auto-mixing-list" role="list">
-                {duckedSessions.length === 0 ? (
-                  <div className="auto-mixing-empty">当前没有正在被压低的会话。</div>
-                ) : (
-                  duckedSessions.map((session) => (
-                    <div
-                      className="auto-mixing-target"
-                      key={`ducked-${session.sessionKey}`}
-                      role="listitem"
-                    >
-                      <div className="auto-mixing-target__copy">
-                        <strong>{session.displayName || session.executableName}</strong>
-                        <span>{session.executableName}</span>
-                        <em>
-                          当前 {Math.round(session.currentVolume * 100)}% · 原始 {Math.round(session.originalVolume * 100)}% · 目标 {Math.round(session.expectedDuckedVolume * 100)}%
-                          {session.manualOverride ? " · 手动接管" : ""}
-                        </em>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        ) : null}
       </section>
     </div>
   );

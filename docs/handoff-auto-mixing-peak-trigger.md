@@ -1,5 +1,11 @@
 # Handoff: Auto Mixing Peak Trigger
 
+Historical note:
+
+- This document captures the earlier peak-trigger investigation phase.
+- It is still useful for understanding the move away from raw `AudioSessionStateActive`.
+- The current product/UI source of truth is now `docs/handoff-auto-mixing-product-reset.md`.
+
 ## Context
 
 Workspace: `D:\Project_Dave\SHIT`
@@ -17,7 +23,11 @@ The current work is focused on `auto-mixing`. The shell and `prevent-sleep` shou
 
 ## Current Change
 
-Changed files:
+Landed in commit:
+
+- `0566317` - `Refine auto mixing trigger and settings UI`
+
+Changed files in that landing:
 
 - `src-tauri/Cargo.toml`
 - `src-tauri/src/auto_mixing.rs`
@@ -82,18 +92,13 @@ Reason: `cargo-fmt.exe` is not installed for the stable toolchain on this machin
 
 ## Expected Worktree
 
-Expected modified files:
+Expected current status:
 
 ```text
-M src-tauri/Cargo.toml
-M src-tauri/src/auto_mixing.rs
-M src/modules/auto-mixing/AutoMixingCard.test.tsx
-M src/modules/auto-mixing/AutoMixingSettings.tsx
-A docs/handoff-auto-mixing-peak-trigger.md
-M docs/HANDOFF.md
+clean worktree on `main`
 ```
 
-No commit has been made.
+The peak-trigger changes from this handoff are already committed and present on `main`.
 
 ## Next Steps
 

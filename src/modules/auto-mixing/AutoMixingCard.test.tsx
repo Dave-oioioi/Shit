@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModuleManifest } from "@/app/registry/moduleTypes";
 import { AutoMixingCard } from "@/modules/auto-mixing/AutoMixingCard";
 import { AutoMixingSettings } from "@/modules/auto-mixing/AutoMixingSettings";
@@ -64,12 +64,12 @@ function StatefulAutoMixingCard(
       {...overrides}
       state={state}
       settings={{ ...autoMixingSettings, ...settings }}
-      isExpanded={false}
+      isExpanded={Boolean(overrides.isExpanded)}
       isActive={state.enabled}
       settingsContent={null}
       onPatchState={onPatchState}
       onToggleActive={vi.fn()}
-      onToggleExpand={vi.fn()}
+      onToggleExpand={overrides.onToggleExpand ?? vi.fn()}
     />
   );
 }
@@ -129,6 +129,10 @@ describe("AutoMixingCard", () => {
     invokeMock.mockReset();
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("sends the normalized rule payload when enabling", async () => {
     const user = userEvent.setup();
     invokeMock.mockResolvedValue({
@@ -143,8 +147,7 @@ describe("AutoMixingCard", () => {
       settings: {
         anchorExecutables: ["Spotify.exe"],
         excludedExecutables: ["Discord.exe"],
-        duckedVolumePercent: 15,
-        restoreDurationMs: 300,
+        systemSoundsTriggerEnabled: false,
       },
     });
 
@@ -156,24 +159,38 @@ describe("AutoMixingCard", () => {
           enabled: true,
           anchorExecutables: ["spotify.exe"],
           excludedExecutables: ["discord.exe"],
-          duckedVolumePercent: 15,
-          restoreDurationMs: 120,
+          systemSoundsTriggerEnabled: false,
         },
       });
     });
   });
 
-  it("keeps the old enabled state and reports an error when enabling fails", async () => {
-    const user = userEvent.setup();
-    invokeMock.mockRejectedValue("boom");
+  it("opens settings instead of enabling when no duck target is configured", async () => {
+    vi.useFakeTimers();
+    const onToggleExpand = vi.fn();
 
-    renderCard();
-
-    await user.click(screen.getByRole("button", { name: TOGGLE_LABEL }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("article", { name: /boom/i })).toBeInTheDocument();
+    renderCard({
+      onToggleExpand,
     });
+
+    const toggleButton = screen.getByRole("button", { name: TOGGLE_LABEL });
+    act(() => {
+      toggleButton.click();
+    });
+
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(toggleButton).toHaveAttribute("data-feedback", "reject");
+    expect(onToggleExpand).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(220);
+    });
+    expect(onToggleExpand).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      vi.advanceTimersByTime(450);
+    });
+    expect(toggleButton).toHaveAttribute("data-feedback", "idle");
   });
 
   it("polls runtime status while running and updates duck/session counts", async () => {
@@ -210,42 +227,23 @@ describe("AutoMixingSettings", () => {
   beforeEach(() => {
     invokeMock.mockReset();
     invokeMock.mockImplementation(async (command: string) => {
-      if (command === "auto_mixing_diagnostics") {
-        return {
-          currentSessions: [
-            {
-              sessionKey: "spotify-session",
-              executableName: "spotify.exe",
-              displayName: "Spotify",
-              processId: 101,
-              active: true,
-              audible: true,
-              peakValue: 0.42,
-              currentVolume: 0.65,
-            },
-            {
-              sessionKey: "discord-session",
-              executableName: "discord.exe",
-              displayName: "Discord",
-              processId: 202,
-              active: true,
-              audible: true,
-              peakValue: 0.31,
-              currentVolume: 0.55,
-            },
-            {
-              sessionKey: "foobar-session",
-              executableName: "foobar2000.exe",
-              displayName: "foobar2000",
-              processId: 303,
-              active: false,
-              audible: false,
-              peakValue: 0,
-              currentVolume: 0.4,
-            },
-          ],
-          duckedSessions: [],
-        };
+      if (command === "auto_mixing_list_targets") {
+        return [
+          {
+            executableName: "spotify.exe",
+            displayName: "Spotify",
+            processId: 101,
+            hasAudioSession: true,
+            isRunning: true,
+          },
+          {
+            executableName: "discord.exe",
+            displayName: "Discord",
+            processId: 202,
+            hasAudioSession: true,
+            isRunning: true,
+          },
+        ];
       }
 
       return {
@@ -259,44 +257,73 @@ describe("AutoMixingSettings", () => {
     });
   });
 
-  it("shows selected-rule and add-app panels", async () => {
+  it("shows selected apps first and opens the add/exclude pages", async () => {
+    const user = userEvent.setup();
+
     render(<StatefulAutoMixingSettings onChangeSpy={vi.fn()} />);
 
     await waitFor(() => {
-      expect(invokeMock).toHaveBeenCalledWith("auto_mixing_diagnostics");
+      expect(invokeMock).toHaveBeenCalledWith("auto_mixing_list_targets");
     });
 
-    expect(screen.getByRole("heading", { name: "已选择应用" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "选择应用" })).toBeInTheDocument();
+    expect(screen.getByText("还没有选择应用")).toBeInTheDocument();
+    expect(screen.getAllByText("Spotify").length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: /添加应用/ }));
+
     expect(screen.getByRole("heading", { name: "添加应用" })).toBeInTheDocument();
-    expect(screen.getAllByRole("listitem").length).toBe(3);
+    expect(screen.getByLabelText("Search app candidates")).toBeInTheDocument();
+    expect(screen.getAllByText("Discord").length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "返回选择应用" }));
+    await user.click(screen.getByRole("button", { name: /排除应用/ }));
+
+    expect(screen.getByRole("heading", { name: "排除应用" })).toBeInTheDocument();
   });
 
-  it("adds an app as a bgm target rule", async () => {
+  it("adds a recommended library app as a selected rule", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
 
     render(<StatefulAutoMixingSettings onChangeSpy={onChange} />);
 
     await waitFor(() => {
-      expect(screen.getAllByText("Spotify").length).toBeGreaterThan(0);
+      expect(screen.getByText("Spotify")).toBeInTheDocument();
     });
 
-    const spotifyEntry = screen
-      .getAllByRole("listitem")
-      .find((element) => element.textContent?.includes("spotify.exe"));
-    expect(spotifyEntry).toBeTruthy();
-
-    await user.click(within(spotifyEntry as HTMLElement).getByRole("button", { name: "设为BGM目标" }));
+    await user.click(screen.getByRole("button", { name: "Add foobar2000.exe to selected apps" }));
 
     expect(onChange).toHaveBeenLastCalledWith({
-      anchorExecutables: ["spotify.exe"],
+      anchorExecutables: ["foobar2000.exe"],
       excludedExecutables: [],
-      duckedVolumePercent: 15,
-      restoreDurationMs: 120,
+      systemSoundsTriggerEnabled: true,
     });
   });
 
-  it("moves the same exe from bgm target to ignored trigger without duplication", async () => {
+  it("adds a scanned app to the excluded list", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+
+    render(<StatefulAutoMixingSettings onChangeSpy={onChange} />);
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("auto_mixing_list_targets");
+    });
+
+    await user.click(screen.getByRole("button", { name: /排除应用/ }));
+    expect(screen.getByText("Discord")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Exclude discord.exe from triggers" }));
+
+    expect(onChange).toHaveBeenLastCalledWith({
+      anchorExecutables: [],
+      excludedExecutables: ["discord.exe"],
+      systemSoundsTriggerEnabled: true,
+    });
+  });
+
+  it("moves the same exe from duck target to excluded without duplication", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
 
@@ -305,45 +332,83 @@ describe("AutoMixingSettings", () => {
         settings={{
           anchorExecutables: ["spotify.exe"],
           excludedExecutables: [],
-          duckedVolumePercent: 15,
-          restoreDurationMs: 300,
+          systemSoundsTriggerEnabled: true,
         }}
         onChangeSpy={onChange}
       />,
     );
 
     await waitFor(() => {
-      expect(screen.getAllByText("Spotify").length).toBeGreaterThan(0);
+      expect(screen.getByText("Spotify")).toBeInTheDocument();
     });
 
-    const selectedRulePanel = screen.getByText("BGM目标").closest(".auto-mixing-rule-panel");
-    expect(selectedRulePanel).toBeTruthy();
-    await user.click(within(selectedRulePanel as HTMLElement).getByRole("button", { name: "忽略此声音" }));
+    await user.click(screen.getByRole("button", { name: /排除应用/ }));
+    await user.click(screen.getAllByRole("button", { name: "Exclude spotify.exe from triggers" })[0]);
 
     expect(onChange).toHaveBeenLastCalledWith({
       anchorExecutables: [],
       excludedExecutables: ["spotify.exe"],
-      duckedVolumePercent: 15,
-      restoreDurationMs: 120,
+      systemSoundsTriggerEnabled: true,
     });
   });
 
-  it("keeps rule editing available while the card is enabled", async () => {
-    render(<AutoMixingSettings moduleId="auto-mixing" manifest={manifest} settings={autoMixingSettings} disabled onChange={vi.fn()} />);
+  it("keeps pages viewable but disables editing controls while running", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <AutoMixingSettings
+        moduleId="auto-mixing"
+        manifest={manifest}
+        settings={autoMixingSettings}
+        disabled
+        onChange={vi.fn()}
+      />,
+    );
 
     await waitFor(() => {
-      expect(invokeMock).toHaveBeenCalledWith("auto_mixing_diagnostics");
+      expect(invokeMock).toHaveBeenCalledWith("auto_mixing_list_targets");
     });
 
-    expect(
-      screen
-        .getAllByRole("button")
-        .filter((element) =>
-          ["设为BGM目标", "忽略此声音", "从规则中移除"].some((label) =>
-            (element as HTMLButtonElement).textContent?.includes(label),
-          ),
-        )
-        .every((element) => !(element as HTMLButtonElement).disabled),
-    ).toBe(true);
+    expect(screen.getByText("运行中，关闭后可编辑")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add spotify.exe to selected apps" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Toggle system sounds trigger" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: /添加应用/ }));
+
+    expect(screen.getByLabelText("Search app candidates")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add discord.exe to selected apps" })).toBeDisabled();
+  });
+
+  it("lets the user add a typed executable through the search flow", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+
+    render(<StatefulAutoMixingSettings onChangeSpy={onChange} />);
+
+    await user.click(screen.getByRole("button", { name: /添加应用/ }));
+    await user.type(screen.getByLabelText("Search app candidates"), "custom-player");
+
+    await user.click(screen.getByRole("button", { name: "Add custom-player.exe to selected apps" }));
+
+    expect(onChange).toHaveBeenLastCalledWith({
+      anchorExecutables: ["custom-player.exe"],
+      excludedExecutables: [],
+      systemSoundsTriggerEnabled: true,
+    });
+  });
+
+  it("toggles whether system sounds can trigger ducking", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+
+    render(<StatefulAutoMixingSettings onChangeSpy={onChange} />);
+
+    await user.click(screen.getByRole("button", { name: "Toggle system sounds trigger" }));
+
+    expect(onChange).toHaveBeenLastCalledWith({
+      anchorExecutables: [],
+      excludedExecutables: [],
+      systemSoundsTriggerEnabled: false,
+    });
   });
 });

@@ -1,6 +1,6 @@
 [package]
 name = "shit-vault"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 
 [build-dependencies]
@@ -11,6 +11,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = ["tray-icon", "image-ico"] }
+tauri-plugin-single-instance = "2.4.2"
 windows = { version = "0.58", features = [
   "Win32_Foundation",
   "Win32_Media_Audio",
@@ -22,6 +23,7 @@ windows = { version = "0.58", features = [
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
+  "Win32_System_Registry",
   "Win32_System_SystemInformation",
   "Win32_System_Power",
   "Win32_UI_Input_KeyboardAndMouse",

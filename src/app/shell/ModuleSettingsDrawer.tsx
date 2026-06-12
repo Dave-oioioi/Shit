@@ -50,7 +50,7 @@ function ActiveModuleSettingsDrawer({
     <aside className="drawer">
       <div className="drawer__header">
         <div>
-          <p className="dashboard__eyebrow">模块设置</p>
+          <p className="drawer-card__eyebrow">模块设置</p>
           <h2>{moduleDefinition.manifest.title}</h2>
           <p className="drawer__lead">{moduleDefinition.manifest.description}</p>
         </div>

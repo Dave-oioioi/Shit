@@ -1,4 +1,5 @@
 import type { CSSProperties, PropsWithChildren, ReactNode } from "react";
+import { ChevronDown } from "lucide-react";
 
 type CardFrameProps = PropsWithChildren<{
   accent: string;
@@ -12,6 +13,7 @@ type CardFrameProps = PropsWithChildren<{
   onToggleActive: () => void;
   onToggleExpand: () => void;
   switchLabel: string;
+  switchFeedback?: "idle" | "reject";
 }>;
 
 export function CardFrame({
@@ -26,6 +28,7 @@ export function CardFrame({
   onToggleActive,
   onToggleExpand,
   switchLabel,
+  switchFeedback = "idle",
   children,
 }: CardFrameProps) {
   return (
@@ -55,6 +58,7 @@ export function CardFrame({
             type="button"
             className="card-switch"
             data-on={isActive}
+            data-feedback={switchFeedback}
             onClick={onToggleActive}
             aria-label={`${switchLabel} \u5f00\u5173`}
             aria-pressed={isActive}
@@ -74,10 +78,7 @@ export function CardFrame({
             aria-label={isExpanded ? "\u6536\u8d77\u8bbe\u7f6e" : "\u5c55\u5f00\u8bbe\u7f6e"}
             aria-expanded={isExpanded}
           >
-            <span className="card-frame__settings-glyph" aria-hidden="true">
-              <span />
-              <span />
-            </span>
+            <ChevronDown className="card-frame__settings-glyph" size={17} aria-hidden="true" />
           </button>
         </div>
       </div>

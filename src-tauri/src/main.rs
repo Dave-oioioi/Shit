@@ -10,8 +10,10 @@ use auto_mixing::{
 use prevent_sleep::{PreventSleepManager, PreventSleepRequest, PreventSleepStatus};
 use serde::{Deserialize, Serialize};
 use std::{
+  env,
   fs,
   path::PathBuf,
+  ptr,
   sync::{
     atomic::{AtomicBool, Ordering},
     Mutex,
@@ -24,6 +26,13 @@ use tauri::{
   AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Position, RunEvent, Window,
   WindowEvent,
 };
+use windows_sys::Win32::{
+  Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS},
+  System::Registry::{
+    RegCloseKey, RegCreateKeyW, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW,
+    RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_SET_VALUE, REG_SZ,
+  },
+};
 
 const WINDOW_LABEL: &str = "main";
 const TRAY_ID: &str = "main-tray";
@@ -32,6 +41,8 @@ const MENU_SETTINGS_ID: &str = "tray-settings";
 const MENU_EXIT_ID: &str = "tray-exit";
 const NAVIGATE_EVENT: &str = "shell:navigate";
 const WINDOW_STATE_FILE: &str = "window-state.json";
+const STARTUP_RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+const STARTUP_VALUE_NAME: &str = "SHIT VAULT";
 const WINDOW_STATE_VERSION: u32 = 2;
 const RIGHT_EDGE_PADDING: i32 = 24;
 const EDGE_PADDING: i32 = 12;
@@ -50,6 +61,12 @@ struct NavigationPayload {
   view: ShellView,
 }
 
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppSettingsStatus {
+  launch_on_startup: bool,
+}
+
 #[derive(Clone, Copy, Serialize, Deserialize)]
 struct SavedWindowPosition {
   version: u32,
@@ -62,6 +79,7 @@ struct SavedWindowPosition {
 struct AppState {
   allow_exit: AtomicBool,
   saved_position: Mutex<Option<SavedWindowPosition>>,
+  pending_view: Mutex<ShellView>,
 }
 
 impl Default for AppState {
@@ -69,6 +87,7 @@ impl Default for AppState {
     Self {
       allow_exit: AtomicBool::new(false),
       saved_position: Mutex::new(None),
+      pending_view: Mutex::new(ShellView::Home),
     }
   }
 }
@@ -78,6 +97,9 @@ fn main() {
     .manage(AppState::default())
     .manage(AutoMixingManager::default())
     .manage(PreventSleepManager::default())
+    .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+      let _ = show_shell(app, ShellView::Home, None, true);
+    }))
     .invoke_handler(tauri::generate_handler![
       auto_mixing_set_enabled,
       auto_mixing_status,
@@ -85,6 +107,9 @@ fn main() {
       auto_mixing_diagnostics,
       prevent_sleep_set_enabled,
       prevent_sleep_status,
+      app_shell_navigation,
+      app_settings_status,
+      app_set_launch_on_startup,
     ])
     .setup(|app| {
       let tray_menu = build_tray_menu(app.handle())?;
@@ -222,6 +247,8 @@ fn show_shell<R: tauri::Runtime>(
   anchor: Option<PhysicalPosition<i32>>,
   force_corner: bool,
 ) -> tauri::Result<()> {
+  set_pending_shell_view(app, view);
+
   if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
     let state = app.state::<AppState>();
     apply_window_position(app, &window, &state, anchor, force_corner)?;
@@ -232,6 +259,12 @@ fn show_shell<R: tauri::Runtime>(
   }
 
   Ok(())
+}
+
+fn set_pending_shell_view<R: tauri::Runtime>(app: &AppHandle<R>, view: ShellView) {
+  if let Ok(mut pending_view) = app.state::<AppState>().pending_view.lock() {
+    *pending_view = view;
+  }
 }
 
 fn configure_window<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) -> tauri::Result<()> {
@@ -375,6 +408,153 @@ fn window_state_path<R: tauri::Runtime>(app: &AppHandle<R>) -> tauri::Result<Pat
   Ok(app.path().app_data_dir()?.join(WINDOW_STATE_FILE))
 }
 
+fn to_wide(value: &str) -> Vec<u16> {
+  value.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+fn win32_result(result: u32, operation: &str) -> Result<(), String> {
+  if result == ERROR_SUCCESS {
+    Ok(())
+  } else {
+    Err(format!("{operation} failed with Windows error {result}"))
+  }
+}
+
+fn startup_command() -> Result<String, String> {
+  let executable = env::current_exe()
+    .map_err(|error| format!("Failed to resolve current executable: {error}"))?;
+  Ok(format!("\"{}\"", executable.to_string_lossy()))
+}
+
+fn open_startup_key(access: u32) -> Result<Option<HKEY>, String> {
+  let key_path = to_wide(STARTUP_RUN_KEY);
+  let mut key: HKEY = ptr::null_mut();
+  let result = unsafe {
+    RegOpenKeyExW(
+      HKEY_CURRENT_USER,
+      key_path.as_ptr(),
+      0,
+      access,
+      &mut key,
+    )
+  };
+
+  if result == ERROR_FILE_NOT_FOUND {
+    return Ok(None);
+  }
+
+  win32_result(result, "Open startup registry key")?;
+  Ok(Some(key))
+}
+
+fn create_startup_key() -> Result<HKEY, String> {
+  let key_path = to_wide(STARTUP_RUN_KEY);
+  let mut key: HKEY = ptr::null_mut();
+  let result = unsafe { RegCreateKeyW(HKEY_CURRENT_USER, key_path.as_ptr(), &mut key) };
+  win32_result(result, "Create startup registry key")?;
+  Ok(key)
+}
+
+fn close_key(key: HKEY) {
+  if !key.is_null() {
+    let _ = unsafe { RegCloseKey(key) };
+  }
+}
+
+fn read_startup_registration() -> Result<Option<String>, String> {
+  let Some(key) = open_startup_key(KEY_READ)? else {
+    return Ok(None);
+  };
+
+  let value_name = to_wide(STARTUP_VALUE_NAME);
+  let mut value_type = 0;
+  let mut data_size = 0;
+  let query_size_result = unsafe {
+    RegQueryValueExW(
+      key,
+      value_name.as_ptr(),
+      ptr::null(),
+      &mut value_type,
+      ptr::null_mut(),
+      &mut data_size,
+    )
+  };
+
+  if query_size_result == ERROR_FILE_NOT_FOUND {
+    close_key(key);
+    return Ok(None);
+  }
+
+  if let Err(error) = win32_result(query_size_result, "Read startup registry value") {
+    close_key(key);
+    return Err(error);
+  }
+
+  if value_type != REG_SZ || data_size == 0 {
+    close_key(key);
+    return Ok(None);
+  }
+
+  let mut data = vec![0u16; (data_size as usize + 1) / 2];
+  let query_value_result = unsafe {
+    RegQueryValueExW(
+      key,
+      value_name.as_ptr(),
+      ptr::null(),
+      &mut value_type,
+      data.as_mut_ptr() as *mut u8,
+      &mut data_size,
+    )
+  };
+  close_key(key);
+  win32_result(query_value_result, "Read startup registry value")?;
+
+  let end = data.iter().position(|unit| *unit == 0).unwrap_or(data.len());
+  Ok(Some(String::from_utf16_lossy(&data[..end])))
+}
+
+fn set_startup_registration(enabled: bool) -> Result<(), String> {
+  let value_name = to_wide(STARTUP_VALUE_NAME);
+
+  if enabled {
+    let key = create_startup_key()?;
+    let command = to_wide(&startup_command()?);
+    let result = unsafe {
+      RegSetValueExW(
+        key,
+        value_name.as_ptr(),
+        0,
+        REG_SZ,
+        command.as_ptr() as *const u8,
+        (command.len() * std::mem::size_of::<u16>()) as u32,
+      )
+    };
+    close_key(key);
+    return win32_result(result, "Write startup registry value");
+  }
+
+  let Some(key) = open_startup_key(KEY_SET_VALUE)? else {
+    return Ok(());
+  };
+  let result = unsafe { RegDeleteValueW(key, value_name.as_ptr()) };
+  close_key(key);
+
+  if result == ERROR_FILE_NOT_FOUND {
+    return Ok(());
+  }
+
+  win32_result(result, "Delete startup registry value")
+}
+
+fn app_settings_status_from_system() -> Result<AppSettingsStatus, String> {
+  let expected_command = startup_command()?;
+  let launch_on_startup = read_startup_registration()?
+    .map(|registered_command| registered_command == expected_command)
+    .unwrap_or(false);
+
+  Ok(AppSettingsStatus { launch_on_startup })
+}
+
 fn request_exit<R: tauri::Runtime>(app: &AppHandle<R>) {
   app.state::<AutoMixingManager>().stop();
   app.state::<PreventSleepManager>().stop();
@@ -424,6 +604,28 @@ fn prevent_sleep_status(
   manager: tauri::State<'_, PreventSleepManager>,
 ) -> PreventSleepStatus {
   manager.status()
+}
+
+#[tauri::command]
+fn app_shell_navigation(state: tauri::State<'_, AppState>) -> NavigationPayload {
+  let view = state
+    .pending_view
+    .lock()
+    .map(|pending_view| *pending_view)
+    .unwrap_or(ShellView::Home);
+
+  NavigationPayload { view }
+}
+
+#[tauri::command]
+fn app_settings_status() -> Result<AppSettingsStatus, String> {
+  app_settings_status_from_system()
+}
+
+#[tauri::command]
+fn app_set_launch_on_startup(enabled: bool) -> Result<AppSettingsStatus, String> {
+  set_startup_registration(enabled)?;
+  app_settings_status_from_system()
 }
 
 #[cfg(test)]

@@ -10,13 +10,62 @@ export type AutoMixingState = {
 export type AutoMixingSettings = {
   anchorExecutables: string[];
   excludedExecutables: string[];
-  duckedVolumePercent: number;
-  restoreDurationMs: number;
+  systemSoundsTriggerEnabled: boolean;
 };
 
-const DEFAULT_DUCKED_VOLUME_PERCENT = 15;
-const DEFAULT_RESTORE_DURATION_MS = 120;
-const LEGACY_DEFAULT_RESTORE_DURATION_MS = 300;
+export type AutoMixingLibraryApp = {
+  executableName: string;
+  displayName: string;
+  aliases: string[];
+};
+
+export const autoMixingMusicAppLibrary: AutoMixingLibraryApp[] = [
+  {
+    executableName: "spotify.exe",
+    displayName: "Spotify",
+    aliases: ["spotify"],
+  },
+  {
+    executableName: "qqmusic.exe",
+    displayName: "QQ Music",
+    aliases: ["qqmusic", "qq music", "qq音乐"],
+  },
+  {
+    executableName: "cloudmusic.exe",
+    displayName: "NetEase Cloud Music",
+    aliases: ["cloudmusic", "netease", "netease cloud music", "网易云", "网易云音乐"],
+  },
+  {
+    executableName: "itunes.exe",
+    displayName: "iTunes",
+    aliases: ["itunes", "apple music"],
+  },
+  {
+    executableName: "applemusic.exe",
+    displayName: "Apple Music",
+    aliases: ["apple music", "applemusic"],
+  },
+  {
+    executableName: "foobar2000.exe",
+    displayName: "foobar2000",
+    aliases: ["foobar", "foobar2000"],
+  },
+  {
+    executableName: "aimp.exe",
+    displayName: "AIMP",
+    aliases: ["aimp"],
+  },
+  {
+    executableName: "musicbee.exe",
+    displayName: "MusicBee",
+    aliases: ["musicbee", "music bee"],
+  },
+  {
+    executableName: "potplayermini64.exe",
+    displayName: "PotPlayer",
+    aliases: ["potplayer", "potplayer64"],
+  },
+];
 
 export const autoMixingState: AutoMixingState = {
   enabled: false,
@@ -30,8 +79,7 @@ export const autoMixingState: AutoMixingState = {
 export const autoMixingSettings: AutoMixingSettings = {
   anchorExecutables: [],
   excludedExecutables: [],
-  duckedVolumePercent: DEFAULT_DUCKED_VOLUME_PERCENT,
-  restoreDurationMs: DEFAULT_RESTORE_DURATION_MS,
+  systemSoundsTriggerEnabled: true,
 };
 
 function normalizeExecutableList(value: unknown) {
@@ -42,25 +90,23 @@ function normalizeExecutableList(value: unknown) {
   return Array.from(
     new Set(
       value
-        .map((entry) => (typeof entry === "string" ? entry.trim().toLowerCase() : ""))
-        .filter((entry) => entry.endsWith(".exe")),
+        .map((entry) => normalizeExecutableName(typeof entry === "string" ? entry : ""))
+        .filter((entry) => entry.length > 0),
     ),
   );
 }
 
-function normalizeNumber(value: unknown, fallback: number, min: number, max: number) {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return fallback;
-  }
-
-  return Math.max(min, Math.min(max, Math.round(value)));
+function normalizeBoolean(value: unknown, fallback: boolean) {
+  return typeof value === "boolean" ? value : fallback;
 }
 
-function normalizeRestoreDuration(value: unknown) {
-  const duration = normalizeNumber(value, DEFAULT_RESTORE_DURATION_MS, 0, 10_000);
-  return duration === LEGACY_DEFAULT_RESTORE_DURATION_MS
-    ? DEFAULT_RESTORE_DURATION_MS
-    : duration;
+export function normalizeExecutableName(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return "";
+  }
+
+  return normalized.endsWith(".exe") ? normalized : `${normalized}.exe`;
 }
 
 export function normalizeAutoMixingSettings(
@@ -72,20 +118,15 @@ export function normalizeAutoMixingSettings(
   );
   const anchorExecutables = normalizeExecutableList(
     rawSettings.anchorExecutables ?? rawSettings.selectedExecutables,
-  ).filter(
-    (entry) => !excludedExecutables.includes(entry),
-  );
+  ).filter((entry) => !excludedExecutables.includes(entry));
 
   return {
     anchorExecutables,
     excludedExecutables,
-    duckedVolumePercent: normalizeNumber(
-      rawSettings.duckedVolumePercent,
-      DEFAULT_DUCKED_VOLUME_PERCENT,
-      1,
-      100,
+    systemSoundsTriggerEnabled: normalizeBoolean(
+      rawSettings.systemSoundsTriggerEnabled,
+      true,
     ),
-    restoreDurationMs: normalizeRestoreDuration(rawSettings.restoreDurationMs),
   };
 }
 
@@ -96,11 +137,14 @@ export function autoMixingSettingsEqual(
   const normalizedRight = normalizeAutoMixingSettings(right);
 
   return (
-    left.duckedVolumePercent === normalizedRight.duckedVolumePercent &&
-    left.restoreDurationMs === normalizedRight.restoreDurationMs &&
+    left.systemSoundsTriggerEnabled === normalizedRight.systemSoundsTriggerEnabled &&
     left.anchorExecutables.length === normalizedRight.anchorExecutables.length &&
     left.excludedExecutables.length === normalizedRight.excludedExecutables.length &&
-    left.anchorExecutables.every((entry, index) => entry === normalizedRight.anchorExecutables[index]) &&
-    left.excludedExecutables.every((entry, index) => entry === normalizedRight.excludedExecutables[index])
+    left.anchorExecutables.every(
+      (entry, index) => entry === normalizedRight.anchorExecutables[index],
+    ) &&
+    left.excludedExecutables.every(
+      (entry, index) => entry === normalizedRight.excludedExecutables[index],
+    )
   );
 }

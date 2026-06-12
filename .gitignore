@@ -36,6 +36,7 @@ pnpm-debug.log*
 dist/
 build/
 src-tauri/target/
+src-tauri/target-codex-build/
 src-tauri/gen/
 .next/
 .nuxt/

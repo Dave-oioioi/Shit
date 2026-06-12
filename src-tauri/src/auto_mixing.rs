@@ -13,6 +13,7 @@ use windows::{
   Win32::{
     Foundation::CloseHandle,
     Media::Audio::{
+      eCommunications,
       eMultimedia,
       eRender,
       Endpoints::IAudioMeterInformation,
@@ -51,6 +52,9 @@ const MAX_RESTORE_DURATION_MS: u64 = 10_000;
 const AUDIBLE_PEAK_THRESHOLD: f32 = 0.001;
 const VOLUME_EPSILON: f32 = 0.02;
 const MANUAL_OVERRIDE_EPSILON: f32 = 0.04;
+const DEFAULT_INCLUDE_SYSTEM_SOUNDS: bool = true;
+const SYSTEM_SOUNDS_EXECUTABLE: &str = "__system_sounds__";
+const SYSTEM_SOUNDS_DISPLAY_NAME: &str = "System Sounds";
 
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -64,6 +68,7 @@ pub struct AutoMixingRequest {
   anchor_executables: Vec<String>,
   #[serde(default)]
   excluded_executables: Vec<String>,
+  include_system_sounds: Option<bool>,
   ducked_volume_percent: Option<u8>,
   restore_duration_ms: Option<u64>,
 }
@@ -198,6 +203,7 @@ struct AutoMixingWorker {
 struct WorkerConfig {
   anchor_executables: BTreeSet<String>,
   excluded_executables: BTreeSet<String>,
+  include_system_sounds: bool,
   ducked_volume: f32,
   restore_duration: Duration,
 }
@@ -208,6 +214,7 @@ struct SessionSnapshot {
   executable_name: String,
   display_name: String,
   process_id: u32,
+  is_system_session: bool,
   active: bool,
   audible: bool,
   peak_value: f32,
@@ -223,6 +230,12 @@ struct DuckedSession {
   last_applied_volume: f32,
   release_started_at: Option<Instant>,
   manual_override: bool,
+}
+
+#[derive(Clone)]
+struct DeviceSessionsSnapshot {
+  device_ids: BTreeSet<String>,
+  sessions: Vec<SessionSnapshot>,
 }
 
 #[derive(Clone)]
@@ -350,6 +363,9 @@ impl AutoMixingManager {
     self.runtime.clear_diagnostics();
 
     let config = WorkerConfig::from_request(request);
+    if config.anchor_executables.is_empty() {
+      return Err("auto mixing requires at least one duck target".into());
+    }
     let stop = Arc::new(AtomicBool::new(false));
     let stop_for_thread = Arc::clone(&stop);
     let runtime = Arc::clone(&self.runtime);
@@ -399,6 +415,9 @@ impl WorkerConfig {
     Self {
       anchor_executables,
       excluded_executables,
+      include_system_sounds: request
+        .include_system_sounds
+        .unwrap_or(DEFAULT_INCLUDE_SYSTEM_SOUNDS),
       ducked_volume: f32::from(
         request
           .ducked_volume_percent
@@ -443,7 +462,7 @@ fn run_worker(stop: Arc<AtomicBool>, config: WorkerConfig, runtime: Arc<AutoMixi
   };
 
   let mut tracked_sessions: BTreeMap<String, DuckedSession> = BTreeMap::new();
-  let mut current_device_id: Option<String> = None;
+  let mut current_device_ids = BTreeSet::new();
 
   loop {
     if stop.load(Ordering::SeqCst) {
@@ -453,18 +472,18 @@ fn run_worker(stop: Arc<AtomicBool>, config: WorkerConfig, runtime: Arc<AutoMixi
 
     match enumerate_running_processes()
       .map(|processes| processes_by_id(&processes))
-      .and_then(|processes| enumerate_default_output_sessions(&processes))
+      .and_then(|processes| enumerate_monitored_output_sessions(&processes, true))
     {
-      Ok((device_id, sessions)) => {
-        if current_device_id.as_deref() != Some(device_id.as_str()) {
+      Ok(snapshot) => {
+        if current_device_ids != snapshot.device_ids {
           restore_all_sessions(&mut tracked_sessions, config.restore_duration, &stop);
-          current_device_id = Some(device_id);
+          current_device_ids = snapshot.device_ids.clone();
         }
 
         runtime.write_runtime_error(None);
-        runtime.write_observed_session_count(sessions.len());
-        apply_ducking_round(&config, &sessions, &mut tracked_sessions, &stop);
-        runtime.write_diagnostics(build_runtime_diagnostics(&sessions, &tracked_sessions));
+        runtime.write_observed_session_count(snapshot.sessions.len());
+        apply_ducking_round(&config, &snapshot.sessions, &mut tracked_sessions, &stop);
+        runtime.write_diagnostics(build_runtime_diagnostics(&snapshot.sessions, &tracked_sessions));
         runtime.write_active_duck_count(
           tracked_sessions
             .values()
@@ -499,6 +518,7 @@ fn apply_ducking_round(
     sessions,
     &config.anchor_executables,
     &config.excluded_executables,
+    config.include_system_sounds,
   );
   let active_sessions: BTreeMap<&str, &SessionSnapshot> = sessions
     .iter()
@@ -579,22 +599,17 @@ fn apply_ducking_round(
       continue;
     };
 
-      let still_anchor = config.anchor_executables.contains(&tracked.executable_name);
-      let still_excluded = config.excluded_executables.contains(&tracked.executable_name);
-      let should_remain_ducked = should_duck_session(
-        &tracked.executable_name,
-        active_session.active,
-        &audible_trigger_executables,
-        &config.anchor_executables,
-        &config.excluded_executables,
-      );
+    let still_anchor = config.anchor_executables.contains(&tracked.executable_name);
+    let still_excluded = config.excluded_executables.contains(&tracked.executable_name);
+    let should_remain_ducked = should_duck_session(
+      &tracked.executable_name,
+      active_session.active,
+      &audible_trigger_executables,
+      &config.anchor_executables,
+      &config.excluded_executables,
+    );
 
     if still_anchor && !still_excluded && should_remain_ducked {
-      continue;
-    }
-
-    if tracked.manual_override {
-      released_keys.push(key.clone());
       continue;
     }
 
@@ -608,10 +623,8 @@ fn apply_ducking_round(
       tracked.original_volume,
       tracked.last_applied_volume,
       current_volume,
-    ) {
+    ) && !tracked.manual_override {
       tracked.manual_override = true;
-      released_keys.push(key.clone());
-      continue;
     }
 
     let next_volume = advance_envelope_volume(
@@ -654,7 +667,7 @@ fn build_runtime_diagnostics(
         session_key: session.session_key.clone(),
         executable_name: session.executable_name.clone(),
         display_name: session.display_name.clone(),
-        process_id: Some(session.process_id),
+        process_id: (session.process_id != 0).then_some(session.process_id),
         current_volume: session.current_volume,
         original_volume: tracked.original_volume,
         expected_ducked_volume: tracked.expected_ducked_volume,
@@ -674,7 +687,7 @@ fn session_to_diagnostic_session(session: &SessionSnapshot) -> AutoMixingDiagnos
     session_key: session.session_key.clone(),
     executable_name: session.executable_name.clone(),
     display_name: session.display_name.clone(),
-    process_id: Some(session.process_id),
+    process_id: (session.process_id != 0).then_some(session.process_id),
     active: session.active,
     audible: session.audible,
     peak_value: session.peak_value,
@@ -700,11 +713,7 @@ fn restore_all_sessions(
 
   tracked_sessions.clear();
 
-  for (manual_override, volume, original_volume) in sessions {
-    if manual_override {
-      continue;
-    }
-
+  for (_manual_override, volume, original_volume) in sessions {
     let _ = restore_session_volume(&volume, original_volume, restore_duration, stop);
   }
 }
@@ -713,6 +722,7 @@ fn compute_audible_trigger_executables(
   sessions: &[SessionSnapshot],
   anchor_executables: &BTreeSet<String>,
   excluded_executables: &BTreeSet<String>,
+  include_system_sounds: bool,
 ) -> BTreeSet<String> {
   compute_audible_trigger_executables_from_iter(
     sessions
@@ -720,6 +730,7 @@ fn compute_audible_trigger_executables(
       .map(|session| (session.executable_name.as_str(), session.audible)),
     anchor_executables,
     excluded_executables,
+    include_system_sounds,
   )
 }
 
@@ -727,12 +738,14 @@ fn compute_audible_trigger_executables_from_iter<'a>(
   sessions: impl IntoIterator<Item = (&'a str, bool)>,
   anchor_executables: &BTreeSet<String>,
   excluded_executables: &BTreeSet<String>,
+  include_system_sounds: bool,
 ) -> BTreeSet<String> {
   sessions
     .into_iter()
     .filter(|(executable_name, audible)| {
       let executable_name = executable_name.to_ascii_lowercase();
       *audible
+        && (include_system_sounds || executable_name != SYSTEM_SOUNDS_EXECUTABLE)
         && !anchor_executables.contains(&executable_name)
         && !excluded_executables.contains(&executable_name)
     })
@@ -805,11 +818,15 @@ fn list_targets_once() -> Result<Vec<AutoMixingTarget>, String> {
   let _com = ComGuard::new()?;
   let processes = enumerate_running_processes()?;
   let process_names = processes_by_id(&processes);
-  let (_, sessions) = enumerate_default_output_sessions(&process_names)?;
+  let snapshot = enumerate_monitored_output_sessions(&process_names, false)?;
 
   let mut targets: BTreeMap<String, AutoMixingTarget> = BTreeMap::new();
 
-  for session in sessions {
+  for session in snapshot
+    .sessions
+    .into_iter()
+    .filter(|session| !session.is_system_session)
+  {
     let entry = targets
       .entry(session.executable_name.clone())
       .or_insert(AutoMixingTarget {
@@ -846,10 +863,14 @@ fn diagnostics_once(
   let _com = ComGuard::new()?;
   let processes = enumerate_running_processes()?;
   let process_names = processes_by_id(&processes);
-  let (_, sessions) = enumerate_default_output_sessions(&process_names)?;
+  let snapshot = enumerate_monitored_output_sessions(&process_names, true)?;
 
   Ok(AutoMixingDiagnostics {
-    current_sessions: sessions.iter().map(session_to_diagnostic_session).collect(),
+    current_sessions: snapshot
+      .sessions
+      .iter()
+      .map(session_to_diagnostic_session)
+      .collect(),
     ducked_sessions,
   })
 }
@@ -899,15 +920,54 @@ fn enumerate_running_processes() -> Result<Vec<ProcessSnapshot>, String> {
   Ok(processes)
 }
 
-fn enumerate_default_output_sessions(
+fn enumerate_monitored_output_sessions(
   processes_by_id: &BTreeMap<u32, ProcessSnapshot>,
-) -> Result<(String, Vec<SessionSnapshot>), String> {
+  include_system_sessions: bool,
+) -> Result<DeviceSessionsSnapshot, String> {
   let enumerator: IMMDeviceEnumerator =
     unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) }
       .map_err(|error| format!("MMDeviceEnumerator creation failed: {error}"))?;
-  let device = unsafe { enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia) }
-    .map_err(|error| format!("GetDefaultAudioEndpoint failed: {error}"))?;
-  let device_id = get_device_id(&device)?;
+  let mut device_ids = BTreeSet::new();
+  let mut devices = Vec::new();
+  let mut last_error = None;
+
+  for role in [eMultimedia, eCommunications] {
+    match unsafe { enumerator.GetDefaultAudioEndpoint(eRender, role) } {
+      Ok(device) => {
+        let device_id = get_device_id(&device)?;
+        if device_ids.insert(device_id.clone()) {
+          devices.push((device_id, device));
+        }
+      }
+      Err(error) => {
+        last_error = Some(format!("GetDefaultAudioEndpoint failed: {error}"));
+      }
+    }
+  }
+
+  if devices.is_empty() {
+    return Err(last_error.unwrap_or_else(|| "No default audio endpoints available".into()));
+  }
+
+  let mut sessions = Vec::new();
+  for (device_id, device) in devices {
+    sessions.extend(enumerate_output_sessions_for_device(
+      &device_id,
+      &device,
+      processes_by_id,
+      include_system_sessions,
+    )?);
+  }
+
+  Ok(DeviceSessionsSnapshot { device_ids, sessions })
+}
+
+fn enumerate_output_sessions_for_device(
+  device_id: &str,
+  device: &IMMDevice,
+  processes_by_id: &BTreeMap<u32, ProcessSnapshot>,
+  include_system_sessions: bool,
+) -> Result<Vec<SessionSnapshot>, String> {
   let session_manager: IAudioSessionManager2 =
     unsafe { device.Activate(CLSCTX_ALL, None) }
       .map_err(|error| format!("IAudioSessionManager2 activation failed: {error}"))?;
@@ -918,20 +978,26 @@ fn enumerate_default_output_sessions(
 
   let mut sessions = Vec::new();
   for index in 0..count {
-    if let Some(session) =
-      enumerate_session_at(&session_enumerator, index, processes_by_id)?
-    {
+    if let Some(session) = enumerate_session_at(
+      &session_enumerator,
+      index,
+      device_id,
+      processes_by_id,
+      include_system_sessions,
+    )? {
       sessions.push(session);
     }
   }
 
-  Ok((device_id, sessions))
+  Ok(sessions)
 }
 
 fn enumerate_session_at(
   session_enumerator: &IAudioSessionEnumerator,
   index: i32,
+  device_id: &str,
   processes_by_id: &BTreeMap<u32, ProcessSnapshot>,
+  include_system_sessions: bool,
 ) -> Result<Option<SessionSnapshot>, String> {
   let control: IAudioSessionControl = unsafe { session_enumerator.GetSession(index) }
     .map_err(|error| format!("IAudioSessionEnumerator::GetSession failed: {error}"))?;
@@ -941,24 +1007,33 @@ fn enumerate_session_at(
   let process_id = unsafe { control2.GetProcessId() }
     .map_err(|error| format!("IAudioSessionControl2::GetProcessId failed: {error}"))?;
 
-  if process_id == 0 {
+  let raw_session_key = read_pwstr(unsafe { control2.GetSessionIdentifier() })
+    .unwrap_or_else(|| format!("pid:{process_id}:{index}"));
+  let session_key = format!("{device_id}:{raw_session_key}");
+  let is_system_session = process_id == 0;
+  if is_system_session && !include_system_sessions {
     return Ok(None);
   }
 
-  let session_key = read_pwstr(unsafe { control2.GetSessionIdentifier() })
-    .unwrap_or_else(|| format!("pid:{process_id}:{index}"));
-  let executable_name = processes_by_id
-    .get(&process_id)
-    .map(|process| process.executable_name.clone())
-    .unwrap_or_default();
+  let executable_name = if is_system_session {
+    SYSTEM_SOUNDS_EXECUTABLE.to_string()
+  } else {
+    processes_by_id
+      .get(&process_id)
+      .map(|process| process.executable_name.clone())
+      .unwrap_or_default()
+  };
   if executable_name.is_empty() {
     return Ok(None);
   }
 
-  let display_name =
+  let display_name = if is_system_session {
+    SYSTEM_SOUNDS_DISPLAY_NAME.to_string()
+  } else {
     read_pwstr(unsafe { control.GetDisplayName() })
       .filter(|value| !value.is_empty())
-      .unwrap_or_else(|| display_name_from_executable(&executable_name));
+      .unwrap_or_else(|| display_name_from_executable(&executable_name))
+  };
   let state = unsafe { control.GetState() }
     .map_err(|error| format!("IAudioSessionControl::GetState failed: {error}"))?;
   let active = state == AudioSessionStateActive;
@@ -976,6 +1051,7 @@ fn enumerate_session_at(
     executable_name: executable_name.to_ascii_lowercase(),
     display_name,
     process_id,
+    is_system_session,
     active,
     audible: is_session_audible(active, peak_value),
     peak_value,
@@ -1041,6 +1117,7 @@ mod tests {
       blocked_executables: vec!["discord.exe".into()],
       anchor_executables: Vec::new(),
       excluded_executables: Vec::new(),
+      include_system_sounds: None,
       ducked_volume_percent: None,
       restore_duration_ms: None,
     });
@@ -1126,6 +1203,7 @@ mod tests {
       ],
       &selected,
       &blocked,
+      true,
     );
 
     assert!(!triggers.contains("spotify.exe"));
